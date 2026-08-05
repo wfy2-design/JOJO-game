@@ -75,6 +75,8 @@ try {
 
     Send-GameKey $game 0x31 1900
     Capture-Window $game "01-action"
+    Send-GameKey $game 0x41 450
+    Capture-Window $game "01b-opposite-action"
     Send-GameKey $game 0x45 300
     Capture-Window $game "02-skills"
     Send-GameKey $game 0x1B 250

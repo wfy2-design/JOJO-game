@@ -8,6 +8,7 @@
 // 角色运行时状态
 struct Character {
     std::string name;
+    std::string imagePath;
     int teamId = 1; // 1 = 队伍A, 2 = 队伍B
     int maxHp = 0;
     int hp = 0;

@@ -2,7 +2,17 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <queue>
 #include <sstream>
+#include <vector>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace {
 
@@ -38,12 +48,112 @@ sf::Color withAlpha(sf::Color color, float alpha) {
     return color;
 }
 
+bool readUtf8File(const std::string& path, std::vector<char>& bytes) {
+#ifdef _WIN32
+    int length = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0);
+    if (length <= 0) return false;
+    std::wstring wide(static_cast<size_t>(length), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, &wide[0], length);
+    std::FILE* file = _wfopen(wide.c_str(), L"rb");
+#else
+    std::FILE* file = std::fopen(path.c_str(), "rb");
+#endif
+    if (!file) return false;
+    std::fseek(file, 0, SEEK_END);
+    long size = std::ftell(file);
+    std::rewind(file);
+    if (size <= 0) {
+        std::fclose(file);
+        return false;
+    }
+    bytes.resize(static_cast<size_t>(size));
+    bool ok = std::fread(bytes.data(), 1, bytes.size(), file) == bytes.size();
+    std::fclose(file);
+    return ok;
+}
+
+bool loadImageFromGamePath(const std::string& path, sf::Image& image) {
+    const std::vector<std::string> prefixes = {"", "../", "../../"};
+    std::vector<char> bytes;
+    for (const std::string& prefix : prefixes) {
+        if (readUtf8File(prefix + path, bytes) &&
+            image.loadFromMemory(bytes.data(), bytes.size()))
+            return true;
+    }
+    return false;
+}
+
+bool isBackgroundWhite(const sf::Color& color) {
+    return color.r >= 225 && color.g >= 225 && color.b >= 225;
+}
+
+bool maskAndCropFighter(sf::Image& image) {
+    const sf::Vector2u size = image.getSize();
+    if (size.x == 0 || size.y == 0) return false;
+
+    std::vector<unsigned char> visited(static_cast<size_t>(size.x) * size.y, 0);
+    std::queue<unsigned> pending;
+    auto enqueue = [&](unsigned x, unsigned y) {
+        size_t index = static_cast<size_t>(y) * size.x + x;
+        if (visited[index] || !isBackgroundWhite(image.getPixel(x, y))) return;
+        visited[index] = 1;
+        sf::Color pixel = image.getPixel(x, y);
+        pixel.a = 0;
+        image.setPixel(x, y, pixel);
+        pending.push(static_cast<unsigned>(index));
+    };
+
+    for (unsigned x = 0; x < size.x; ++x) {
+        enqueue(x, 0);
+        enqueue(x, size.y - 1);
+    }
+    for (unsigned y = 0; y < size.y; ++y) {
+        enqueue(0, y);
+        enqueue(size.x - 1, y);
+    }
+
+    while (!pending.empty()) {
+        unsigned index = pending.front();
+        pending.pop();
+        unsigned x = index % size.x;
+        unsigned y = index / size.x;
+        if (x > 0) enqueue(x - 1, y);
+        if (x + 1 < size.x) enqueue(x + 1, y);
+        if (y > 0) enqueue(x, y - 1);
+        if (y + 1 < size.y) enqueue(x, y + 1);
+    }
+
+    unsigned left = size.x, top = size.y, right = 0, bottom = 0;
+    bool visible = false;
+    for (unsigned y = 0; y < size.y; ++y) {
+        for (unsigned x = 0; x < size.x; ++x) {
+            if (image.getPixel(x, y).a == 0) continue;
+            visible = true;
+            left = std::min(left, x);
+            top = std::min(top, y);
+            right = std::max(right, x);
+            bottom = std::max(bottom, y);
+        }
+    }
+    if (!visible) return false;
+
+    const unsigned margin = 8;
+    left = left > margin ? left - margin : 0;
+    top = top > margin ? top - margin : 0;
+    right = std::min(size.x - 1, right + margin);
+    bottom = std::min(size.y - 1, bottom + margin);
+    sf::Image cropped;
+    cropped.create(right - left + 1, bottom - top + 1, sf::Color::Transparent);
+    cropped.copy(image, 0, 0, sf::IntRect(left, top, right - left + 1,
+                                          bottom - top + 1), true);
+    image = cropped;
+    return true;
+}
+
 } // namespace
 
-UIManager::UIManager(BattleSystem& battle)
-    : battle_(battle),
-      window_(sf::VideoMode(static_cast<unsigned>(W), static_cast<unsigned>(H)),
-              toUtf8(u8"回合制对战"), sf::Style::Titlebar | sf::Style::Close) {
+UIManager::UIManager(BattleSystem& battle) : battle_(battle) {
+    createWindow(true);
     const std::vector<std::string> fontPaths = {
         "assets/fonts/simhei.ttf", "../assets/fonts/simhei.ttf",
         "C:/Windows/Fonts/msyh.ttc", "C:/Windows/Fonts/simhei.ttf"};
@@ -53,43 +163,70 @@ UIManager::UIManager(BattleSystem& battle)
             break;
         }
     }
-    fighterLoaded_ = loadFighterTexture();
     lastPhase_ = battle_.phase();
-    window_.setFramerateLimit(60);
 }
 
-bool UIManager::loadFighterTexture() {
-    const std::vector<std::string> paths = {
-        "assets/images/pixel_fighter.jpg", "../assets/images/pixel_fighter.jpg"};
+void UIManager::createWindow(bool fullscreen) {
+    fullscreen_ = fullscreen;
+    sf::String title = toUtf8(u8"回合制对战");
+    if (fullscreen_) {
+        sf::VideoMode desktop = sf::VideoMode::getDesktopMode();
+        window_.create(desktop, title, sf::Style::None);
+        window_.setPosition(sf::Vector2i(0, 0));
+    } else {
+        window_.create(sf::VideoMode(static_cast<unsigned>(W), static_cast<unsigned>(H)),
+                       title, sf::Style::Titlebar | sf::Style::Close);
+    }
+    window_.setFramerateLimit(60);
+    updateView();
+}
+
+void UIManager::updateView() {
+    sf::Vector2u size = window_.getSize();
+    if (size.x == 0 || size.y == 0) return;
+
+    float windowRatio = static_cast<float>(size.x) / size.y;
+    float viewRatio = W / H;
+    sf::FloatRect viewport(0.0f, 0.0f, 1.0f, 1.0f);
+    if (windowRatio > viewRatio) {
+        viewport.width = viewRatio / windowRatio;
+        viewport.left = (1.0f - viewport.width) * 0.5f;
+    } else if (windowRatio < viewRatio) {
+        viewport.height = windowRatio / viewRatio;
+        viewport.top = (1.0f - viewport.height) * 0.5f;
+    }
+
+    sf::View view(sf::FloatRect(0.0f, 0.0f, W, H));
+    view.setViewport(viewport);
+    window_.setView(view);
+}
+
+void UIManager::toggleFullscreen() {
+    createWindow(!fullscreen_);
+}
+bool UIManager::loadFighterTexture(const std::string& path, sf::Texture& texture) {
     sf::Image image;
-    bool loaded = false;
-    for (const auto& path : paths) {
-        if (image.loadFromFile(path)) {
-            loaded = true;
-            break;
-        }
-    }
-    if (!loaded || image.getSize().x == 0 || image.getSize().y == 0) return false;
-
-    // The supplied JPEG has a flat gray field. Remove pixels close to the corner
-    // sample while preserving the black outline and colored character details.
-    sf::Color bg = image.getPixel(0, 0);
-    for (unsigned y = 0; y < image.getSize().y; ++y) {
-        for (unsigned x = 0; x < image.getSize().x; ++x) {
-            sf::Color pixel = image.getPixel(x, y);
-            int dr = static_cast<int>(pixel.r) - bg.r;
-            int dg = static_cast<int>(pixel.g) - bg.g;
-            int db = static_cast<int>(pixel.b) - bg.b;
-            if (dr * dr + dg * dg + db * db < 1150) {
-                pixel.a = 0;
-                image.setPixel(x, y, pixel);
-            }
-        }
-    }
-
-    if (!fighterTexture_.loadFromImage(image)) return false;
-    fighterTexture_.setSmooth(false);
+    if (!loadImageFromGamePath(path, image) || !maskAndCropFighter(image) ||
+        !texture.loadFromImage(image))
+        return false;
+    texture.setSmooth(true);
     return true;
+}
+
+sf::Texture* UIManager::textureFor(const Character& character) {
+    if (character.imagePath.empty()) return nullptr;
+    auto found = fighterTextures_.find(character.imagePath);
+    if (found != fighterTextures_.end()) return found->second.get();
+    if (failedTexturePaths_.count(character.imagePath) != 0) return nullptr;
+
+    std::unique_ptr<sf::Texture> texture(new sf::Texture());
+    if (!loadFighterTexture(character.imagePath, *texture)) {
+        failedTexturePaths_.insert(character.imagePath);
+        return nullptr;
+    }
+    sf::Texture* result = texture.get();
+    fighterTextures_[character.imagePath] = std::move(texture);
+    return result;
 }
 
 bool UIManager::pollEvents(Key& outKey, bool& quit) {
@@ -100,7 +237,15 @@ bool UIManager::pollEvents(Key& outKey, bool& quit) {
             quit = true;
             return false;
         }
+        if (event.type == sf::Event::Resized) {
+            updateView();
+            continue;
+        }
         if (event.type != sf::Event::KeyPressed) continue;
+        if (event.key.code == sf::Keyboard::F11) {
+            toggleFullscreen();
+            return false;
+        }
 
         switch (event.key.code) {
         case sf::Keyboard::E: outKey = Key::E; return true;
@@ -125,6 +270,15 @@ void UIManager::updateTransition(float dt) {
         transition_ = 0.0f;
     }
     transition_ = std::min(1.0f, transition_ + dt * 7.5f);
+
+    Phase phase = battle_.phase();
+    if (phase != Phase::Menu && phase != Phase::CoinToss &&
+        battle_.currentActor() != viewActor_) {
+        previousViewActor_ = viewActor_;
+        viewActor_ = battle_.currentActor();
+        viewTransition_ = 0.0f;
+    }
+    viewTransition_ = std::min(1.0f, viewTransition_ + dt * 3.5f);
 }
 
 void UIManager::render(float dt) {
@@ -259,6 +413,27 @@ void UIManager::drawBackground() {
     window_.draw(title);
 }
 
+UIManager::FighterLayout UIManager::targetFighterLayout(Side side, Side actor) const {
+    bool foreground = side == actor;
+    float x = side == Side::A ? 485.0f : 935.0f;
+    return {sf::Vector2f(x, foreground ? 530.0f : 382.0f),
+            foreground ? 330.0f : 210.0f};
+}
+
+UIManager::FighterLayout UIManager::fighterLayout(Side side) const {
+    FighterLayout from = targetFighterLayout(side, previousViewActor_);
+    FighterLayout to = targetFighterLayout(side, viewActor_);
+    float t = clamp01(viewTransition_);
+    t = t * t * (3.0f - 2.0f * t);
+    return {sf::Vector2f(from.ground.x + (to.ground.x - from.ground.x) * t,
+                         from.ground.y + (to.ground.y - from.ground.y) * t),
+            from.height + (to.height - from.height) * t};
+}
+
+sf::Vector2f UIManager::fighterCenter(Side side) const {
+    FighterLayout layout = fighterLayout(side);
+    return sf::Vector2f(layout.ground.x, layout.ground.y - layout.height * 0.5f);
+}
 void UIManager::drawBattleScene() {
     sf::ConvexShape floor(4);
     floor.setPoint(0, sf::Vector2f(215, 420));
@@ -276,73 +451,95 @@ void UIManager::drawBattleScene() {
     redFloor.setFillColor(sf::Color(117, 17, 34, 125));
     window_.draw(redFloor);
 
-    drawFighter(Side::A, sf::Vector2f(470, 420), false);
-    drawFighter(Side::B, sf::Vector2f(945, 285), true);
+    FighterLayout a = fighterLayout(Side::A);
+    FighterLayout b = fighterLayout(Side::B);
+    if (a.ground.y <= b.ground.y) {
+        drawFighter(Side::A, a, false);
+        drawFighter(Side::B, b, true);
+    } else {
+        drawFighter(Side::B, b, true);
+        drawFighter(Side::A, a, false);
+    }
     drawStatusHud(Side::A, sf::FloatRect(270, 590, 475, 108));
     drawStatusHud(Side::B, sf::FloatRect(790, 35, 460, 108));
 }
 
-void UIManager::drawFighter(Side side, sf::Vector2f center, bool mirrored) {
+void UIManager::drawFighter(Side side, const FighterLayout& layout, bool mirrored) {
     const Character& character = battle_.team(side).active();
     bool active = battle_.phase() != Phase::CoinToss &&
                   battle_.phase() != Phase::GameOver &&
                   battle_.currentActor() == side;
-
-    sf::CircleShape shadow(76.0f);
-    shadow.setOrigin(76.0f, 76.0f);
-    shadow.setPosition(center.x, center.y + 104.0f);
-    shadow.setScale(1.55f, 0.28f);
-    shadow.setFillColor(sf::Color(0, 0, 0, 150));
-    window_.draw(shadow);
+    float roleScale = layout.height / 330.0f;
+    sf::Vector2f center(layout.ground.x, layout.ground.y - layout.height * 0.5f);
 
     if (active) {
+        float rayLength = layout.height * 0.47f;
         for (int i = 0; i < 12; ++i) {
             float b = (static_cast<float>(i) * 30.0f + 13.0f) * 3.14159265f / 180.0f;
             float c = (static_cast<float>(i) * 30.0f - 13.0f) * 3.14159265f / 180.0f;
             sf::ConvexShape ray(3);
             ray.setPoint(0, center);
-            ray.setPoint(1, sf::Vector2f(center.x + std::cos(b) * 148.0f,
-                                         center.y + std::sin(b) * 148.0f));
-            ray.setPoint(2, sf::Vector2f(center.x + std::cos(c) * 148.0f,
-                                         center.y + std::sin(c) * 148.0f));
+            ray.setPoint(1, sf::Vector2f(center.x + std::cos(b) * rayLength,
+                                         center.y + std::sin(b) * rayLength));
+            ray.setPoint(2, sf::Vector2f(center.x + std::cos(c) * rayLength,
+                                         center.y + std::sin(c) * rayLength));
             ray.setFillColor(withAlpha(teamColor(side), 0.18f));
             window_.draw(ray);
         }
     }
 
-    if (fighterLoaded_) {
-        sf::Sprite sprite(fighterTexture_);
-        sf::Vector2u size = fighterTexture_.getSize();
-        sprite.setOrigin(size.x * 0.5f, size.y * 0.5f);
-        sprite.setPosition(center);
-        float scale = character.isDead() ? 0.92f : 1.05f;
+    sf::CircleShape shadow(70.0f);
+    shadow.setOrigin(70.0f, 70.0f);
+    shadow.setPosition(layout.ground.x, layout.ground.y + 2.0f);
+    shadow.setScale(1.45f * roleScale, 0.24f * roleScale);
+    shadow.setFillColor(sf::Color(0, 0, 0, 150));
+    window_.draw(shadow);
+
+    sf::Texture* texture = textureFor(character);
+    if (texture) {
+        sf::Sprite sprite(*texture);
+        sf::Vector2u size = texture->getSize();
+        sprite.setOrigin(size.x * 0.5f, static_cast<float>(size.y));
+        sprite.setPosition(layout.ground);
+        float scale = layout.height / static_cast<float>(size.y);
+        if (character.isDead()) scale *= 0.9f;
         sprite.setScale(mirrored ? -scale : scale, scale);
         if (character.isDead())
             sprite.setColor(sf::Color(120, 120, 130, 180));
         window_.draw(sprite);
     } else {
-        sf::CircleShape head(28.0f);
-        head.setOrigin(28.0f, 28.0f);
-        head.setPosition(center.x, center.y - 55.0f);
+        sf::CircleShape head(28.0f * roleScale);
+        head.setOrigin(28.0f * roleScale, 28.0f * roleScale);
+        head.setPosition(center.x, center.y - 42.0f * roleScale);
         head.setFillColor(C_WHITE);
         head.setOutlineColor(teamColor(side));
-        head.setOutlineThickness(6.0f);
+        head.setOutlineThickness(5.0f * roleScale);
         window_.draw(head);
         sf::ConvexShape body(4);
-        body.setPoint(0, sf::Vector2f(center.x - 42, center.y - 22));
-        body.setPoint(1, sf::Vector2f(center.x + 42, center.y - 22));
-        body.setPoint(2, sf::Vector2f(center.x + 28, center.y + 88));
-        body.setPoint(3, sf::Vector2f(center.x - 28, center.y + 88));
+        body.setPoint(0, sf::Vector2f(center.x - 42.0f * roleScale,
+                                      center.y - 12.0f * roleScale));
+        body.setPoint(1, sf::Vector2f(center.x + 42.0f * roleScale,
+                                      center.y - 12.0f * roleScale));
+        body.setPoint(2, sf::Vector2f(center.x + 28.0f * roleScale,
+                                      layout.ground.y));
+        body.setPoint(3, sf::Vector2f(center.x - 28.0f * roleScale,
+                                      layout.ground.y));
         body.setFillColor(C_INK);
         body.setOutlineColor(teamColor(side));
-        body.setOutlineThickness(6.0f);
+        body.setOutlineThickness(5.0f * roleScale);
         window_.draw(body);
     }
 
-    drawSkewPanel(sf::FloatRect(center.x - 80, center.y + 106, 160, 30),
+    float tagWidth = 160.0f * std::max(0.72f, roleScale);
+    float tagHeight = 30.0f * std::max(0.78f, roleScale);
+    float tagY = layout.ground.y + 10.0f;
+    drawSkewPanel(sf::FloatRect(layout.ground.x - tagWidth * 0.5f, tagY,
+                                tagWidth, tagHeight),
                   active ? teamColor(side) : C_INK, C_WHITE, 10.0f);
-    sf::Text tag = makeText(side == Side::A ? "TEAM A" : "TEAM B", 15, C_WHITE,
-                            sf::Vector2f(center.x - 48, center.y + 111));
+    unsigned tagSize = std::max(11u, static_cast<unsigned>(15.0f * roleScale));
+    sf::Text tag = makeText(side == Side::A ? "TEAM A" : "TEAM B", tagSize, C_WHITE,
+                            sf::Vector2f(layout.ground.x - tagWidth * 0.30f,
+                                         tagY + 4.0f));
     tag.setStyle(sf::Text::Bold);
     window_.draw(tag);
 }
@@ -517,16 +714,11 @@ void UIManager::drawCommandBlade(const std::string& key, const std::string& labe
 
 void UIManager::drawActionMenu() {
     Side side = battle_.currentActor();
-    sf::Vector2f center = side == Side::A ? sf::Vector2f(470, 410)
-                                         : sf::Vector2f(945, 285);
-    sf::Vector2f attack = side == Side::A ? sf::Vector2f(635, 455)
-                                         : sf::Vector2f(1110, 340);
-    sf::Vector2f skill = side == Side::A ? sf::Vector2f(610, 280)
-                                        : sf::Vector2f(1080, 195);
-    sf::Vector2f defend = side == Side::A ? sf::Vector2f(315, 475)
-                                         : sf::Vector2f(790, 360);
-    sf::Vector2f swap = side == Side::A ? sf::Vector2f(320, 295)
-                                       : sf::Vector2f(795, 185);
+    sf::Vector2f center = fighterCenter(side);
+    sf::Vector2f attack(center.x + 155.0f, center.y + 72.0f);
+    sf::Vector2f skill(center.x + 145.0f, center.y - 96.0f);
+    sf::Vector2f defend(center.x - 155.0f, center.y + 76.0f);
+    sf::Vector2f swap(center.x - 145.0f, center.y - 94.0f);
     float p = easeOut(transition_);
 
     drawConnector(center, sf::Vector2f(center.x + (attack.x - center.x) * p,
@@ -765,16 +957,18 @@ void UIManager::consumeEvents() {
     for (const BattleEvent& event : events) {
         switch (event.type) {
         case BattleEvent::Type::Damage: {
-            sf::Vector2f pos = event.side == Side::A ? sf::Vector2f(430, 325)
-                                                     : sf::Vector2f(905, 190);
+            sf::Vector2f pos = fighterCenter(event.side);
+            pos.x -= 40.0f;
+            pos.y -= 28.0f;
             sf::Text text = makeText("-" + std::to_string(event.amount), 42, C_RED, pos);
             text.setStyle(sf::Text::Bold);
             floats_.push_back({text, 0.0f, 1.4f, pos});
             break;
         }
         case BattleEvent::Type::Miss: {
-            sf::Vector2f pos = event.side == Side::A ? sf::Vector2f(410, 325)
-                                                     : sf::Vector2f(885, 190);
+            sf::Vector2f pos = fighterCenter(event.side);
+            pos.x -= 55.0f;
+            pos.y -= 28.0f;
             sf::Text text = makeText("MISS!", 35, C_WHITE, pos);
             text.setStyle(sf::Text::Bold);
             floats_.push_back({text, 0.0f, 1.4f, pos});

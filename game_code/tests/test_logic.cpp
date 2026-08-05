@@ -35,6 +35,14 @@ int main(int argc, char** argv) {
     }
     CHECK(teamA.size() == 3, "队伍A应有3名角色");
     CHECK(teamB.size() == 3, "队伍B应有3名角色");
+    CHECK(teamA[0].name == u8"空条承太郎" && teamB[0].name == u8"迪奥",
+          "演示双方首发角色应正确加载");
+    for (const Character& character : teamA)
+        CHECK(character.imagePath.find("graph/graph/") == 0,
+              "队伍A角色应配置graph/graph图片");
+    for (const Character& character : teamB)
+        CHECK(character.imagePath.find("graph/graph/") == 0,
+              "队伍B角色应配置graph/graph图片");
     CHECK(teamA[0].skills.size() == 2, "角色技能应从配置中完整加载");
     CHECK(teamA[0].skills[0].apCost == 3, "技能AP消耗应正确解析");
     printf("配置解析: 队伍A=%zu 队伍B=%zu\n", teamA.size(), teamB.size());

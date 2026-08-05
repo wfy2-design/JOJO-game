@@ -2,6 +2,38 @@
 #include <SFML/Graphics.hpp>
 #include <cstdio>
 #include <string>
+#include <vector>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
+static bool loadUtf8Image(const std::string& path, sf::Image& image) {
+#ifdef _WIN32
+    int length = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0);
+    if (length <= 0) return false;
+    std::wstring wide(static_cast<size_t>(length), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, &wide[0], length);
+    std::FILE* file = _wfopen(wide.c_str(), L"rb");
+#else
+    std::FILE* file = std::fopen(path.c_str(), "rb");
+#endif
+    if (!file) return false;
+    std::fseek(file, 0, SEEK_END);
+    long size = std::ftell(file);
+    std::rewind(file);
+    if (size <= 0) {
+        std::fclose(file);
+        return false;
+    }
+    std::vector<char> bytes(static_cast<size_t>(size));
+    bool read = std::fread(bytes.data(), 1, bytes.size(), file) == bytes.size();
+    std::fclose(file);
+    return read && image.loadFromMemory(bytes.data(), bytes.size());
+}
 
 static int countInk(const sf::Image& img) {
     int n = 0;
@@ -22,7 +54,7 @@ int main() {
     }
 
     sf::Image fighter;
-    if (!fighter.loadFromFile("assets/images/pixel_fighter.jpg")) {
+    if (!loadUtf8Image("../graph/graph/空条承太郎.png", fighter)) {
         printf("FIGHTER ASSET FAILED\n");
         return 1;
     }
@@ -68,7 +100,8 @@ int main() {
     t.setPosition(10, 20);
     rt.draw(t);
     sf::Sprite fighterSprite(fighterTexture);
-    fighterSprite.setPosition(300, 40);
+    fighterSprite.setPosition(350, 40);
+    fighterSprite.setScale(0.2f, 0.2f);
     rt.draw(fighterSprite);
     rt.display();
     sf::Image img = rt.getTexture().copyToImage();

@@ -106,6 +106,8 @@ bool loadCharacters(const std::string& path, std::vector<Character>& teamA,
 
         if (key == "name") {
             cur.name = value;
+        } else if (key == "image") {
+            cur.imagePath = value;
         } else if (key == "team") {
             cur.teamId = std::atoi(value.c_str());
         } else if (key == "hp") {
