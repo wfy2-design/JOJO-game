@@ -1,0 +1,13 @@
+# Local build outputs
+game_code/build/
+game_code/src/**/*.o
+game_code/src/*.o
+
+# Editor and OS metadata
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+*.user
+*.suo
+
