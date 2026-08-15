@@ -1,0 +1,28 @@
+JOJO CTB Tactics - bundled open-source font sources
+
+Smiley Sans / 得意黑 v2.0.1
+Project: https://github.com/atelier-anchor/smiley-sans
+Release: https://github.com/atelier-anchor/smiley-sans/releases/tag/v2.0.1
+License: SmileySans-LICENSE.txt (SIL Open Font License 1.1)
+File: SmileySans-Oblique.ttf
+SHA-256: B447D7E781F08BC95C4C9F23BA71ED2B8EBB639AA7184485C71C4CA5AFCD25C4
+
+Source Han Sans CN / 思源黑体
+Project: https://github.com/adobe-fonts/source-han-sans
+Source: https://github.com/adobe-fonts/source-han-sans/blob/release/SubsetOTF/CN/SourceHanSansCN-Bold.otf
+License: SourceHanSans-LICENSE.txt (SIL Open Font License 1.1)
+File: SourceHanSansCN-Bold.otf
+SHA-256: 62383707C086A32F3AFD5E293F34C7EFF64C7FEA31F579FDC6CBE34D920519A6
+
+Bebas Neue
+Project: https://github.com/google/fonts/tree/main/ofl/bebasneue
+License: BebasNeue-OFL.txt (SIL Open Font License 1.1)
+File: BebasNeue-Regular.ttf
+SHA-256: E9AAD965F741713D50D5A338DE019971E57B09CAD0079E37048875EE02ED38F4
+
+Yuji Syuku
+Project: https://github.com/google/fonts/tree/main/ofl/yujisyuku
+Download mirror: https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/yujisyuku/YujiSyuku-Regular.ttf
+License: YujiSyuku-OFL.txt (SIL Open Font License 1.1)
+File: YujiSyuku-Regular.ttf
+SHA-256: 82728EBAFC8C97391E2DAB633414A806F344B8E4E2227D307179F07B548FCA61

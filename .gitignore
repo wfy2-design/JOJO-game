@@ -10,4 +10,6 @@ Thumbs.db
 Desktop.ini
 *.user
 *.suo
-
+# Godot generated files
+godot_game/.godot/
+godot_game/export/
