@@ -39,6 +39,7 @@ func _run() -> void:
 	_test_field_cleanup()
 	_test_wait_action()
 	_test_victory()
+	_test_random_spawn()
 	if failures == 0:
 		print("ALL TESTS PASSED")
 	else:
@@ -245,3 +246,20 @@ func _test_victory() -> void:
 		battle._defeat_unit(unit)
 	_check(battle.phase == BattleModel.PHASE_GAME_OVER, "一方全部退场后结束战斗")
 	_check(battle.winner == BattleData.TEAM_B, "存活方获胜")
+
+
+func _test_random_spawn() -> void:
+	var battle := _new_battle()
+	battle.start_battle("local", 42, {}, {}, 6, true)
+	for unit in battle.units:
+		var pos: Vector2i = unit["pos"]
+		_check(battle.is_inside_board(pos), "%s 随机出生在棋盘内" % unit["name"])
+	# 固定 seed 下随机出生可复现
+	var battle2 := _new_battle()
+	battle2.start_battle("local", 42, {}, {}, 6, true)
+	var same := true
+	for unit in battle.units:
+		var other := battle2.get_unit(int(unit["id"]))
+		if other["pos"] != unit["pos"]:
+			same = false
+	_check(same, "固定 seed 下随机出生可复现")

@@ -33,13 +33,13 @@ func _run() -> void:
 	_check(game.pause_menu.is_open(), "物理 Tab 输入可以打开暂停菜单")
 	_check(game.pause_menu.visible, "暂停菜单全屏层可见")
 	_check(paused, "打开菜单后 SceneTree 暂停")
-	_check(game.pause_menu.main_buttons.size() == 5, "主菜单包含五个入口")
+	_check(game.pause_menu.main_buttons.size() == 6, "主菜单包含六个入口")
 	_check(game.pause_menu.silhouette.size.y <= 800.0, "主菜单立绘剪影已适当缩小")
 	_check(game.pause_menu.silhouette.position.y >= 0.0, "主菜单立绘剪影顶部不超出屏幕")
 	_check(game.pause_menu.silhouette.position.y + game.pause_menu.silhouette.size.y <= 900.0, "主菜单立绘剪影底部不超出屏幕")
 	_check(game.pause_menu.silhouette.get_parent() == game.pause_menu.content_root, "立绘剪影不再受右侧边框限制")
 	_check(game.pause_menu.silhouette_shadow != null, "主菜单包含副色残影层")
-	var expected_labels := ["CONTINUE", "ARCHIVE", "GUIDE", "SETTINGS", "EXIT"]
+	var expected_labels := ["CONTINUE", "ARCHIVE", "GUIDE", "TUTORIAL", "SETTINGS", "EXIT"]
 	for index in expected_labels.size():
 		_check(game.pause_menu.main_buttons[index].text.contains(expected_labels[index]), "主入口使用英文：%s" % expected_labels[index])
 
@@ -75,7 +75,7 @@ func _run() -> void:
 	_check(not game.pause_menu.visible and not paused, "主菜单返回战斗并解除暂停")
 	_check(game.model.current_unit_id == actor_before and game.ui_mode == ui_mode_before, "关闭菜单保持战斗操作状态")
 
-	game._show_mode_menu()
+	game._return_to_title()
 	_check(not game.pause_menu.open_menu(), "标题模式选择页不能打开战斗菜单")
 	game._start_game("ai")
 	await process_frame
@@ -93,7 +93,7 @@ func _run() -> void:
 	game.pause_menu._show_settings_page()
 	game.pause_menu._show_confirmation("title", "测试返回标题")
 	game.pause_menu._confirm_yes()
-	_check(game.menu_overlay != null and not game.pause_menu.enabled, "返回标题回到模式选择并禁用战斗菜单")
+	_check(game.start_flow.visible and not game.pause_menu.enabled, "返回标题回到标题页并禁用战斗菜单")
 
 	if failures == 0:
 		print("ALL PAUSE MENU TESTS PASSED")

@@ -7,6 +7,7 @@ enum Page {
 	MAIN,
 	ARCHIVE,
 	GUIDE,
+	TUTORIAL,
 	SETTINGS,
 }
 
@@ -170,7 +171,6 @@ void fragment() {
 	bottom_hint.add_theme_font_override("font", NUMBER_FONT)
 	bottom_hint.add_theme_font_size_override("font_size", 21)
 	bottom_hint.add_theme_color_override("font_color", COLOR_TEXT)
-	bottom_hint.add_theme_stylebox_override("normal", _panel_style(Color(0.03, 0.03, 0.05, 0.92), current_primary, 2))
 	_place(bottom_hint, Rect2(300, 836, 1000, 42))
 	overlay.add_child(bottom_hint)
 
@@ -250,6 +250,7 @@ func _activate_main_item(item_id: String) -> void:
 		"continue": close_menu()
 		"archive": _show_archive_page()
 		"guide": _show_guide_page()
+		"tutorial": _show_tutorial_page()
 		"settings": _show_settings_page()
 		"exit": _show_confirmation("exit", "确定要退出游戏吗？")
 
@@ -484,6 +485,18 @@ func _update_rule_page() -> void:
 	rule_body.text = str(page["body"])
 	var visuals := ["3 VS 3\n\n6 × 6", "DISTANCE\n\n|X1-X2| + |Y1-Y2|", "CTB\n\nS = 100 / p", "CRITICAL\n\n× 1.5"]
 	rule_visual.text = visuals[rule_page_index]
+
+
+func _show_tutorial_page() -> void:
+	current_page = Page.TUTORIAL
+	menu_title.text = "TUTORIAL"
+	subtitle.text = "游戏教程"
+	bottom_hint.text = "上一步 / 下一步 / 重播 / 返回    TAB / ESC  返回菜单"
+	_clear_content()
+	var tutorial_controller := TutorialController.new()
+	tutorial_controller.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	tutorial_controller.exit_requested.connect(_show_main_page)
+	content_root.add_child(tutorial_controller)
 
 
 func _show_settings_page() -> void:
@@ -751,8 +764,7 @@ func _apply_main_button_styles(selected_index: int) -> void:
 
 func _set_portrait(target: TextureRect, character_key: String, as_silhouette: bool) -> void:
 	var character := MenuThemeData.character_by_key(character_key)
-	var final_path := "res://assets/menu/portraits/%s.png" % character_key
-	var texture_path := final_path if ResourceLoader.exists(final_path) else str(character.get("portrait_texture", character["texture"]))
+	var texture_path := str(character.get("portrait_texture", character["texture"]))
 	var texture: Texture2D = load(texture_path)
 	target.texture = texture
 	var image := texture.get_image()

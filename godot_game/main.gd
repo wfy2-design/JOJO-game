@@ -57,6 +57,11 @@ var critical_image: TextureRect
 var critical_tween: Tween
 var cinematic_running := false
 var pause_menu: PauseMenu
+var draft_screen: DraftScreen
+var tutorial_controller: TutorialController
+var pending_board_size := 6
+var pending_random_spawn := false
+var start_flow: StartFlow
 
 
 func _ready() -> void:
@@ -72,7 +77,11 @@ func _ready() -> void:
 	model.changed.connect(_refresh)
 	model.event_created.connect(_on_battle_event)
 	model.battle_ended.connect(_on_battle_ended)
-	_show_mode_menu()
+	start_flow = StartFlow.new()
+	start_flow.mode_confirmed.connect(_on_start_flow_confirmed)
+	start_flow.tutorial_requested.connect(_open_tutorial)
+	start_flow.exit_requested.connect(func() -> void: get_tree().quit())
+	add_child(start_flow)
 
 
 func _build_interface() -> void:
@@ -231,7 +240,7 @@ func _build_result_overlay() -> void:
 	var restart := Button.new()
 	restart.text = "返回模式选择"
 	restart.custom_minimum_size = Vector2(280, 54)
-	restart.pressed.connect(_show_mode_menu)
+	restart.pressed.connect(_return_to_mode)
 	center.add_child(restart)
 
 
@@ -264,56 +273,7 @@ func _build_impact_label() -> void:
 	add_child(impact_label)
 
 
-func _show_mode_menu() -> void:
-	if pause_menu != null:
-		pause_menu.enabled = false
-		pause_menu.close_menu()
-	if menu_overlay != null and is_instance_valid(menu_overlay):
-		menu_overlay.queue_free()
-	result_overlay.visible = false
-	menu_overlay = ColorRect.new()
-	menu_overlay.color = Color(0.02, 0.02, 0.03, 0.94)
-	menu_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	menu_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
-	add_child(menu_overlay)
-	var panel := PanelContainer.new()
-	panel.add_theme_stylebox_override("panel", _panel_style(COLOR_PANEL, COLOR_RED, 4))
-	_place(panel, Rect2(480, 205, 640, 440))
-	menu_overlay.add_child(panel)
-	var box := VBoxContainer.new()
-	box.alignment = BoxContainer.ALIGNMENT_CENTER
-	box.add_theme_constant_override("separation", 18)
-	panel.add_child(box)
-	var title := Label.new()
-	title.text = "MECHA CTB TACTICS"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 46)
-	title.add_theme_color_override("font_color", COLOR_TEXT)
-	box.add_child(title)
-	var subtitle := Label.new()
-	subtitle.text = "6 × 6 同格战棋 / 3 VS 3"
-	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	subtitle.add_theme_font_size_override("font_size", 20)
-	subtitle.add_theme_color_override("font_color", COLOR_GOLD)
-	box.add_child(subtitle)
-	var local := Button.new()
-	local.text = "本地双人"
-	local.custom_minimum_size = Vector2(350, 60)
-	local.pressed.connect(func() -> void: _start_game("local"))
-	box.add_child(local)
-	var ai := Button.new()
-	ai.text = "玩家对 AI"
-	ai.custom_minimum_size = Vector2(350, 60)
-	ai.pressed.connect(func() -> void: _start_game("ai"))
-	box.add_child(ai)
-	var note := Label.new()
-	note.text = "A / E / C / M 操作，WASD 移动，Esc 撤销"
-	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	note.add_theme_color_override("font_color", COLOR_MUTED)
-	box.add_child(note)
-
-
-func _start_game(selected_mode: String) -> void:
+func _start_game(selected_mode: String, teams: Dictionary = {}, board_size: int = 6, random_spawn: bool = false) -> void:
 	if menu_overlay != null:
 		menu_overlay.queue_free()
 		menu_overlay = null
@@ -323,11 +283,54 @@ func _start_game(selected_mode: String) -> void:
 	ai_running = false
 	cinematic_running = false
 	critical_overlay.visible = false
-	model.start_battle(selected_mode, int(Time.get_ticks_msec()))
+	model.start_battle(selected_mode, int(Time.get_ticks_msec()), teams, {}, board_size, random_spawn)
 	board.set_model(model)
 	board.set_targeted_unit(-1)
 	pause_menu.enabled = true
 	_refresh()
+
+
+func _open_draft(selected_mode: String, team_size: int, board_size: int, random_spawn: bool = false) -> void:
+	if menu_overlay != null:
+		menu_overlay.queue_free()
+		menu_overlay = null
+	result_overlay.visible = false
+	pause_menu.enabled = false
+	pending_board_size = board_size
+	pending_random_spawn = random_spawn
+	draft_screen = DraftScreen.new()
+	draft_screen.draft_finished.connect(_on_draft_finished.bind(selected_mode))
+	add_child(draft_screen)
+	draft_screen.setup(selected_mode, int(Time.get_ticks_msec()), team_size)
+
+
+func _on_draft_finished(result: Dictionary, selected_mode: String) -> void:
+	if draft_screen != null:
+		draft_screen.queue_free()
+		draft_screen = null
+	_start_game(selected_mode, result, pending_board_size, pending_random_spawn)
+
+
+func _open_tutorial() -> void:
+	if menu_overlay != null:
+		menu_overlay.queue_free()
+		menu_overlay = null
+	result_overlay.visible = false
+	if pause_menu != null:
+		pause_menu.enabled = false
+		pause_menu.close_menu()
+	if start_flow != null:
+		start_flow.visible = false
+	tutorial_controller = TutorialController.new()
+	tutorial_controller.exit_requested.connect(_on_tutorial_exit)
+	add_child(tutorial_controller)
+
+
+func _on_tutorial_exit() -> void:
+	if tutorial_controller != null:
+		tutorial_controller.queue_free()
+		tutorial_controller = null
+	_return_to_mode()
 
 
 func _can_open_pause_menu() -> bool:
@@ -335,7 +338,31 @@ func _can_open_pause_menu() -> bool:
 
 
 func _on_pause_return_to_title() -> void:
-	_show_mode_menu()
+	_return_to_title()
+
+
+func _on_start_flow_confirmed(selected_mode: String, team_size: int, board_size: int, random_spawn: bool) -> void:
+	if start_flow != null:
+		start_flow.visible = false
+	_open_draft(selected_mode, team_size, board_size, random_spawn)
+
+
+func _return_to_title() -> void:
+	if pause_menu != null:
+		pause_menu.enabled = false
+		pause_menu.close_menu()
+	if start_flow != null:
+		start_flow.visible = true
+		start_flow.show_title()
+
+
+func _return_to_mode() -> void:
+	if pause_menu != null:
+		pause_menu.enabled = false
+		pause_menu.close_menu()
+	if start_flow != null:
+		start_flow.visible = true
+		start_flow.show_mode()
 
 
 func _make_panel(rect: Rect2, color: Color = COLOR_PANEL) -> PanelContainer:
@@ -394,6 +421,7 @@ func _refresh() -> void:
 	_update_log()
 	_update_target_info()
 	_update_highlights()
+	board.sync_fields(model.fields)
 	board.queue_redraw()
 	var is_ai_turn: bool = model.mode == "ai" and actor["team"] == BattleData.TEAM_B
 	var disabled: bool = cinematic_running or is_ai_turn or model.phase == BattleModel.PHASE_GAME_OVER
@@ -902,6 +930,11 @@ func _execute_target(unit_id: int, skill_data: Dictionary) -> void:
 		previewed_skill_id = ""
 		ui_mode = UiMode.ACTION
 		skill_panel.visible = false
+		var skill_id := str(skill_data.get("id", ""))
+		if skill_id in ["frost_lance", "frost_bind", "ice_mirror", "crystal_guard"]:
+			var target := model.get_unit(unit_id)
+			if not target.is_empty():
+				board.play_ice_effect(target["pos"])
 
 
 func _on_board_cell_hovered(cell: Vector2i) -> void:
@@ -966,6 +999,7 @@ func _on_battle_ended(winning_team: int) -> void:
 	ui_mode = UiMode.GAME_OVER
 	result_label.text = "%s 队胜利" % ("A" if winning_team == BattleData.TEAM_A else "B")
 	result_overlay.visible = true
+	board.clear_fire_particles()
 
 
 func _maybe_schedule_ai() -> void:

@@ -17,6 +17,7 @@ var events: Array[Dictionary] = []
 var current_unit_id := -1
 var phase := PHASE_IDLE
 var mode := "local"
+var board_size := 6
 var winner := -1
 var turn_count := 0
 var move_path: Array[Vector2i] = []
@@ -30,8 +31,16 @@ var turn_snapshot: Dictionary = {}
 var rng := RandomNumberGenerator.new()
 
 
-func start_battle(selected_mode: String = "local", seed: int = 1) -> void:
+func start_battle(
+	selected_mode: String = "local",
+	seed: int = 1,
+	teams: Dictionary = {},
+	spawns: Dictionary = {},
+	board_size: int = 6,
+	random_spawn: bool = false
+) -> void:
 	mode = selected_mode
+	self.board_size = board_size
 	rng.seed = seed
 	units.clear()
 	fields.clear()
@@ -41,12 +50,29 @@ func start_battle(selected_mode: String = "local", seed: int = 1) -> void:
 	in_time_stop = false
 	time_stop_free_sprint = false
 	selected_skill = {}
-	for definition in BattleData.characters():
+	var definitions: Array[Dictionary] = []
+	if teams.is_empty():
+		definitions = BattleData.characters()
+	else:
+		for team_key in ["A", "B"]:
+			var keys: Array = teams.get(team_key, [])
+			for character_key in keys:
+				for definition in BattleData.characters():
+					if str(definition["key"]) == str(character_key):
+						var copy: Dictionary = definition.duplicate(true)
+						copy["team"] = BattleData.TEAM_A if team_key == "A" else BattleData.TEAM_B
+						definitions.append(copy)
+	for definition in definitions:
 		var unit := definition.duplicate(true)
 		unit["hp"] = unit["max_hp"]
 		unit["ap"] = unit["initial_ap"]
 		unit["alive"] = true
-		unit["pos"] = Vector2i.ZERO if unit["team"] == BattleData.TEAM_A else Vector2i(5, 5)
+		if spawns.has(str(unit["key"])):
+			unit["pos"] = spawns[str(unit["key"])]
+		elif random_spawn:
+			unit["pos"] = Vector2i(rng.randi_range(0, self.board_size - 1), rng.randi_range(0, self.board_size - 1))
+		else:
+			unit["pos"] = Vector2i.ZERO if unit["team"] == BattleData.TEAM_A else Vector2i(self.board_size - 1, self.board_size - 1)
 		unit["s"] = 100.0 / float(unit["speed"])
 		unit["defending"] = false
 		unit["burns"] = []
@@ -105,7 +131,7 @@ func manhattan(a: Vector2i, b: Vector2i) -> int:
 
 
 func is_inside_board(cell: Vector2i) -> bool:
-	return cell.x >= 0 and cell.x < 6 and cell.y >= 0 and cell.y < 6
+	return cell.x >= 0 and cell.x < board_size and cell.y >= 0 and cell.y < board_size
 
 
 func _turn_less(a: Dictionary, b: Dictionary) -> bool:

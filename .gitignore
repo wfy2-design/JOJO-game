@@ -11,6 +11,8 @@ godot_game/export/
 
 # Local test and image-processing outputs
 tmp/
+tests/artifacts/
+tests/capture_size_menus.gd
 
 # Python generated files
 __pycache__/

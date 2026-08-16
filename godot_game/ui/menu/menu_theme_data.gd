@@ -5,6 +5,7 @@ const MENU_ITEMS := [
 	{"id": "continue", "label": "CONTINUE", "character": "night_chain"},
 	{"id": "archive", "label": "ARCHIVE", "character": "crimson_thorn"},
 	{"id": "guide", "label": "GUIDE", "character": "mirror_tide"},
+	{"id": "tutorial", "label": "TUTORIAL", "character": "frost_wing"},
 	{"id": "settings", "label": "SETTINGS", "character": "sun_blade"},
 	{"id": "exit", "label": "EXIT", "character": "molten_core"},
 ]

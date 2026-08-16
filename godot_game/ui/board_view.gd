@@ -6,26 +6,42 @@ signal cell_hovered(cell: Vector2i)
 signal unit_clicked(unit_id: int)
 signal unit_hovered(unit_id: int)
 
-const BOARD_SIZE := 6
 const TILE_WIDTH := 164.0
 const TILE_HEIGHT := 82.0
 
+var board_size := 6
 var model: BattleModel
 var highlights: Dictionary = {}
 var hovered_cell := Vector2i(-1, -1)
 var hovered_unit_id := -1
 var targeted_unit_id := -1
 var texture_cache: Dictionary = {}
+var effect_layer: Node2D
+var fire_particles: Dictionary = {}
+var _particle_texture: Texture2D
 
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	set_process(false)
+	effect_layer = Node2D.new()
+	add_child(effect_layer)
+	_particle_texture = _make_particle_texture()
 
 
 func set_model(value: BattleModel) -> void:
 	model = value
+	if model != null:
+		board_size = model.board_size
+	clear_fire_particles()
 	queue_redraw()
+
+
+func clear_fire_particles() -> void:
+	for p in fire_particles.values():
+		if is_instance_valid(p):
+			p.queue_free()
+	fire_particles.clear()
 
 
 func set_highlights(value: Dictionary) -> void:
@@ -62,8 +78,8 @@ func cell_polygon(cell: Vector2i) -> PackedVector2Array:
 
 func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, size), Color("#10121b"), true)
-	for y in BOARD_SIZE:
-		for x in BOARD_SIZE:
+	for y in board_size:
+		for x in board_size:
 			var cell := Vector2i(x, y)
 			var base := Color("#1a1c28") if (x + y) % 2 == 0 else Color("#222532")
 			var highlight: Variant = highlights.get(cell, "")
@@ -102,11 +118,6 @@ func _draw() -> void:
 				)
 	if model == null:
 		return
-	for field in model.fields:
-		if field["type"] == "fire_wall":
-			var center := cell_center(field["cell"])
-			draw_circle(center, 24.0, Color(0.94, 0.18, 0.08, 0.68))
-			draw_arc(center, 31.0, 0, TAU, 24, Color("#ffd241"), 4.0)
 	_draw_units()
 
 
@@ -197,6 +208,122 @@ func _load_texture(path: String) -> Texture2D:
 	return texture_cache[path]
 
 
+func _make_particle_texture() -> Texture2D:
+	var gradient := Gradient.new()
+	gradient.colors = PackedColorArray([Color(1, 1, 1, 1), Color(1, 1, 1, 0)])
+	gradient.offsets = PackedFloat32Array([0.0, 1.0])
+	var texture := GradientTexture2D.new()
+	texture.gradient = gradient
+	texture.width = 32
+	texture.height = 32
+	texture.fill = GradientTexture2D.FILL_RADIAL
+	texture.fill_from = Vector2(0.5, 0.5)
+	texture.fill_to = Vector2(0.5, 0.0)
+	return texture
+
+
+func _make_fire_particles() -> GPUParticles2D:
+	var particles := GPUParticles2D.new()
+	particles.texture = _particle_texture
+	particles.amount = 26
+	particles.lifetime = 0.9
+	particles.one_shot = false
+	particles.explosiveness = 0.0
+	particles.emitting = true
+	var material := ParticleProcessMaterial.new()
+	material.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	material.emission_sphere_radius = 5.0
+	material.direction = Vector3(0, -1, 0)
+	material.spread = 22.0
+	material.initial_velocity_min = 24.0
+	material.initial_velocity_max = 48.0
+	material.gravity = Vector3(0, -85, 0)
+	material.scale_min = 0.35
+	material.scale_max = 0.85
+	var ramp := Gradient.new()
+	ramp.colors = PackedColorArray([
+		Color(1.0, 0.95, 0.45, 1.0),
+		Color(1.0, 0.55, 0.12, 1.0),
+		Color(0.88, 0.18, 0.05, 0.85),
+		Color(0.45, 0.0, 0.0, 0.0),
+	])
+	ramp.offsets = PackedFloat32Array([0.0, 0.35, 0.72, 1.0])
+	var ramp_texture := GradientTexture1D.new()
+	ramp_texture.gradient = ramp
+	material.color_ramp = ramp_texture
+	particles.process_material = material
+	return particles
+
+
+func _make_ice_particles() -> GPUParticles2D:
+	var particles := GPUParticles2D.new()
+	particles.texture = _particle_texture
+	particles.amount = 22
+	particles.lifetime = 0.9
+	particles.one_shot = true
+	particles.explosiveness = 0.9
+	particles.emitting = true
+	var material := ParticleProcessMaterial.new()
+	material.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	material.emission_sphere_radius = 8.0
+	material.direction = Vector3(0, 0, 0)
+	material.spread = 180.0
+	material.initial_velocity_min = 30.0
+	material.initial_velocity_max = 70.0
+	material.gravity = Vector3(0, 40, 0)
+	material.scale_min = 0.25
+	material.scale_max = 0.6
+	var ramp := Gradient.new()
+	ramp.colors = PackedColorArray([
+		Color(0.95, 1.0, 1.0, 1.0),
+		Color(0.55, 0.85, 1.0, 0.9),
+		Color(0.3, 0.6, 1.0, 0.0),
+	])
+	ramp.offsets = PackedFloat32Array([0.0, 0.5, 1.0])
+	var ramp_texture := GradientTexture1D.new()
+	ramp_texture.gradient = ramp
+	material.color_ramp = ramp_texture
+	particles.process_material = material
+	return particles
+
+
+func sync_fields(fields: Array) -> void:
+	if effect_layer == null:
+		return
+	var active := {}
+	for field in fields:
+		if str(field["type"]) == "fire_wall":
+			active[field["cell"]] = true
+	var to_remove: Array = []
+	for cell in fire_particles.keys():
+		if not active.has(cell):
+			to_remove.append(cell)
+	for cell in to_remove:
+		var p: GPUParticles2D = fire_particles[cell]
+		if is_instance_valid(p):
+			p.queue_free()
+		fire_particles.erase(cell)
+	for cell in active:
+		if not fire_particles.has(cell):
+			var p := _make_fire_particles()
+			p.position = cell_center(cell)
+			effect_layer.add_child(p)
+			fire_particles[cell] = p
+
+
+func play_ice_effect(cell: Vector2i) -> void:
+	if effect_layer == null:
+		return
+	var p := _make_ice_particles()
+	p.position = cell_center(cell)
+	p.emitting = true
+	effect_layer.add_child(p)
+	get_tree().create_timer(p.lifetime + 0.3).timeout.connect(func() -> void:
+		if is_instance_valid(p):
+			p.queue_free()
+	)
+
+
 func _closed(poly: PackedVector2Array) -> PackedVector2Array:
 	var points := PackedVector2Array(poly)
 	points.append(poly[0])
@@ -235,8 +362,8 @@ func _gui_input(event: InputEvent) -> void:
 
 
 func _cell_at(point: Vector2) -> Vector2i:
-	for y in BOARD_SIZE:
-		for x in BOARD_SIZE:
+	for y in board_size:
+		for x in board_size:
 			var cell := Vector2i(x, y)
 			if Geometry2D.is_point_in_polygon(point, cell_polygon(cell)):
 				return cell
