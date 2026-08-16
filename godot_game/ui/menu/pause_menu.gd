@@ -23,7 +23,7 @@ const JAPANESE_FONT := preload("res://assets/fonts/YujiSyuku-Regular.ttf")
 var enabled := false
 var can_open_callback := Callable()
 var current_page := Page.MAIN
-var current_character_key := "jotaro"
+var current_character_key := "night_chain"
 var current_primary := Color("#7b5ce0")
 var current_secondary := Color("#e0b84c")
 var selected_character_index := 0
@@ -40,6 +40,7 @@ var subtitle: Label
 var content_root: Control
 var bottom_hint: Label
 var silhouette: TextureRect
+var silhouette_shadow: TextureRect
 var onomatopoeia: Label
 var main_buttons: Array[Button] = []
 var archive_content: Control
@@ -152,7 +153,7 @@ void fragment() {
 	overlay.add_child(menu_title)
 
 	subtitle = Label.new()
-	subtitle.text = "PAUSED / JOJO CTB TACTICS"
+	subtitle.text = "PAUSED / MECHA CTB TACTICS"
 	subtitle.add_theme_font_override("font", NUMBER_FONT)
 	subtitle.add_theme_font_size_override("font_size", 23)
 	subtitle.add_theme_color_override("font_color", COLOR_MUTED)
@@ -179,10 +180,26 @@ void fragment() {
 func _show_main_page() -> void:
 	current_page = Page.MAIN
 	menu_title.text = "MENU"
-	subtitle.text = "PAUSED / JOJO CTB TACTICS"
+	subtitle.text = "PAUSED / MECHA CTB TACTICS"
 	bottom_hint.text = "ARROWS  SELECT    ENTER  CONFIRM    TAB / ESC  BACK"
 	_clear_content()
 	main_buttons.clear()
+
+	# Keep the expressive silhouette fully visible inside the viewport.
+	silhouette_shadow = TextureRect.new()
+	silhouette_shadow.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	silhouette_shadow.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	silhouette_shadow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	silhouette_shadow.modulate.a = 0.30
+	_place(silhouette_shadow, Rect2(700, 85, 790, 745))
+	content_root.add_child(silhouette_shadow)
+
+	silhouette = TextureRect.new()
+	silhouette.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	silhouette.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	silhouette.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_place(silhouette, Rect2(650, 55, 840, 790))
+	content_root.add_child(silhouette)
 
 	var menu_box := VBoxContainer.new()
 	menu_box.add_theme_constant_override("separation", 13)
@@ -203,28 +220,17 @@ func _show_main_page() -> void:
 		menu_box.add_child(button)
 		main_buttons.append(button)
 
-	var art_frame := PanelContainer.new()
-	art_frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	art_frame.add_theme_stylebox_override("panel", _panel_style(Color(0.02, 0.02, 0.035, 0.52), current_secondary, 3))
-	_place(art_frame, Rect2(760, 48, 750, 748))
-	content_root.add_child(art_frame)
-
-	silhouette = TextureRect.new()
-	silhouette.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	silhouette.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	silhouette.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	art_frame.add_child(silhouette)
 
 	onomatopoeia = Label.new()
 	onomatopoeia.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	onomatopoeia.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	onomatopoeia.rotation = -0.08
 	onomatopoeia.add_theme_font_override("font", JAPANESE_FONT)
-	onomatopoeia.add_theme_font_size_override("font_size", 56)
+	onomatopoeia.add_theme_font_size_override("font_size", 72)
 	onomatopoeia.add_theme_color_override("font_color", current_secondary)
 	onomatopoeia.add_theme_color_override("font_outline_color", COLOR_INK)
 	onomatopoeia.add_theme_constant_override("outline_size", 8)
-	_place(onomatopoeia, Rect2(870, 664, 540, 90))
+	_place(onomatopoeia, Rect2(910, 676, 620, 112))
 	content_root.add_child(onomatopoeia)
 
 	_select_main_item(0, false)
@@ -709,6 +715,9 @@ func _set_character_theme(character_key: String, animate := true) -> void:
 	current_secondary = next_secondary
 	if silhouette != null and is_instance_valid(silhouette):
 		_set_portrait(silhouette, character_key, true)
+		_set_portrait(silhouette_shadow, character_key, true)
+		if silhouette_shadow.material is ShaderMaterial:
+			silhouette_shadow.material.set_shader_parameter("theme_color", current_secondary)
 		onomatopoeia.text = str(selected_theme["onomatopoeia"])
 
 
@@ -722,6 +731,8 @@ func _apply_primary_color(color: Color) -> void:
 
 
 func _apply_secondary_color(color: Color) -> void:
+	if silhouette_shadow != null and silhouette_shadow.material is ShaderMaterial:
+		silhouette_shadow.material.set_shader_parameter("theme_color", color)
 	if onomatopoeia != null:
 		onomatopoeia.add_theme_color_override("font_color", color)
 
@@ -741,7 +752,7 @@ func _apply_main_button_styles(selected_index: int) -> void:
 func _set_portrait(target: TextureRect, character_key: String, as_silhouette: bool) -> void:
 	var character := MenuThemeData.character_by_key(character_key)
 	var final_path := "res://assets/menu/portraits/%s.png" % character_key
-	var texture_path := final_path if ResourceLoader.exists(final_path) else str(character["texture"])
+	var texture_path := final_path if ResourceLoader.exists(final_path) else str(character.get("portrait_texture", character["texture"]))
 	var texture: Texture2D = load(texture_path)
 	target.texture = texture
 	var image := texture.get_image()
@@ -782,6 +793,7 @@ func _clear_content() -> void:
 		content_root.remove_child(child)
 		child.queue_free()
 	silhouette = null
+	silhouette_shadow = null
 	onomatopoeia = null
 
 

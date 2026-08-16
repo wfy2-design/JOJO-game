@@ -34,16 +34,21 @@ func _run() -> void:
 	_check(game.pause_menu.visible, "暂停菜单全屏层可见")
 	_check(paused, "打开菜单后 SceneTree 暂停")
 	_check(game.pause_menu.main_buttons.size() == 5, "主菜单包含五个入口")
+	_check(game.pause_menu.silhouette.size.y <= 800.0, "主菜单立绘剪影已适当缩小")
+	_check(game.pause_menu.silhouette.position.y >= 0.0, "主菜单立绘剪影顶部不超出屏幕")
+	_check(game.pause_menu.silhouette.position.y + game.pause_menu.silhouette.size.y <= 900.0, "主菜单立绘剪影底部不超出屏幕")
+	_check(game.pause_menu.silhouette.get_parent() == game.pause_menu.content_root, "立绘剪影不再受右侧边框限制")
+	_check(game.pause_menu.silhouette_shadow != null, "主菜单包含副色残影层")
 	var expected_labels := ["CONTINUE", "ARCHIVE", "GUIDE", "SETTINGS", "EXIT"]
 	for index in expected_labels.size():
 		_check(game.pause_menu.main_buttons[index].text.contains(expected_labels[index]), "主入口使用英文：%s" % expected_labels[index])
 
 	game.pause_menu._select_main_item(1, false)
-	_check(game.pause_menu.current_character_key == "dio", "ARCHIVE 对应 DIO 主题")
+	_check(game.pause_menu.current_character_key == "crimson_thorn", "ARCHIVE 对应绯棘主题")
 	game.pause_menu._show_archive_page()
 	_check(game.pause_menu.current_page == PauseMenu.Page.ARCHIVE, "可进入中文图鉴页")
 	game.pause_menu._select_archive_character(5)
-	_check(game.pause_menu.archive_name.text.contains("乔瑟夫"), "图鉴包含第六名角色乔瑟夫")
+	_check(game.pause_menu.archive_name.text.contains("霜翊"), "图鉴包含第六名角色霜翊")
 	_check(not game.pause_menu.archive_story.text.is_empty(), "图鉴显示角色背景故事")
 	game.pause_menu._set_archive_tab("skills")
 	var skill_scroll: ScrollContainer = game.pause_menu.archive_content.get_child(0)

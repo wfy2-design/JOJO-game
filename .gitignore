@@ -1,8 +1,3 @@
-# Local build outputs
-game_code/build/
-game_code/src/**/*.o
-game_code/src/*.o
-
 # Editor and OS metadata
 .vscode/
 .idea/
@@ -13,3 +8,11 @@ Desktop.ini
 # Godot generated files
 godot_game/.godot/
 godot_game/export/
+
+# Local test and image-processing outputs
+tmp/
+
+# Python generated files
+__pycache__/
+*.py[cod]
+# Keep generated caches out of commits.

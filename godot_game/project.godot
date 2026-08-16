@@ -1,5 +1,5 @@
 [application]
-config/name="JOJO CTB Tactics"
+config/name="MECHA CTB Tactics"
 run/main_scene="res://main.tscn"
 config/features=PackedStringArray("4.3")
 

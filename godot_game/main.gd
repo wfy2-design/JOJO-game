@@ -24,10 +24,13 @@ var board: BoardView
 var ui_mode := UiMode.ACTION
 var pending_skill: Dictionary = {}
 var hovered_cell := Vector2i(-1, -1)
+var hovered_unit_id := -1
 var ai_running := false
 
 var turn_banner: Label
 var order_list: RichTextLabel
+var status_rows_box: VBoxContainer
+var status_rows: Dictionary = {}
 var status_label: RichTextLabel
 var target_label: RichTextLabel
 var log_label: RichTextLabel
@@ -41,6 +44,7 @@ var attack_button: Button
 var skill_button: Button
 var defend_button: Button
 var move_button: Button
+var wait_button: Button
 var sprint_button: Button
 var undo_button: Button
 var target_popup: PopupMenu
@@ -101,20 +105,20 @@ func _build_interface() -> void:
 
 	var status_panel := _make_panel(Rect2(20, 404, 230, 460))
 	var status_box := VBoxContainer.new()
-	status_box.add_theme_constant_override("separation", 8)
+	status_box.add_theme_constant_override("separation", 5)
 	status_panel.add_child(status_box)
 	status_box.add_child(_section_title("全员状态"))
-	status_label = RichTextLabel.new()
-	status_label.bbcode_enabled = true
-	status_label.scroll_active = false
-	status_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	status_box.add_child(status_label)
+	status_rows_box = VBoxContainer.new()
+	status_rows_box.add_theme_constant_override("separation", 3)
+	status_box.add_child(status_rows_box)
 
 	var board_panel := _make_panel(Rect2(266, 72, 1080, 690), Color("#10121b"))
 	board = BoardView.new()
 	board.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 8)
 	board.cell_clicked.connect(_on_board_cell_clicked)
 	board.cell_hovered.connect(_on_board_cell_hovered)
+	board.unit_clicked.connect(_on_board_unit_clicked)
+	board.unit_hovered.connect(_on_board_unit_hovered)
 	board_panel.add_child(board)
 
 	var target_panel := _make_panel(Rect2(1362, 88, 218, 300))
@@ -157,9 +161,10 @@ func _build_interface() -> void:
 	skill_button = _action_button("E  技能", _open_skill_list)
 	defend_button = _action_button("C  防御", _perform_defend)
 	move_button = _action_button("M  移动", _enter_move_mode)
+	wait_button = _action_button("X  不行动", _perform_wait)
 	sprint_button = _action_button("Shift  冲刺", _toggle_sprint)
 	undo_button = _action_button("Esc  撤销", _cancel_or_undo)
-	for button in [attack_button, skill_button, defend_button, move_button, sprint_button, undo_button]:
+	for button in [attack_button, skill_button, defend_button, move_button, wait_button, sprint_button, undo_button]:
 		actions.add_child(button)
 
 	_build_skill_panel()
@@ -280,7 +285,7 @@ func _show_mode_menu() -> void:
 	box.add_theme_constant_override("separation", 18)
 	panel.add_child(box)
 	var title := Label.new()
-	title.text = "JOJO CTB TACTICS"
+	title.text = "MECHA CTB TACTICS"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 46)
 	title.add_theme_color_override("font_color", COLOR_TEXT)
@@ -320,6 +325,7 @@ func _start_game(selected_mode: String) -> void:
 	critical_overlay.visible = false
 	model.start_battle(selected_mode, int(Time.get_ticks_msec()))
 	board.set_model(model)
+	board.set_targeted_unit(-1)
 	pause_menu.enabled = true
 	_refresh()
 
@@ -391,7 +397,7 @@ func _refresh() -> void:
 	board.queue_redraw()
 	var is_ai_turn: bool = model.mode == "ai" and actor["team"] == BattleData.TEAM_B
 	var disabled: bool = cinematic_running or is_ai_turn or model.phase == BattleModel.PHASE_GAME_OVER
-	for button in [attack_button, skill_button, defend_button, move_button, sprint_button, undo_button]:
+	for button in [attack_button, skill_button, defend_button, move_button, wait_button, sprint_button, undo_button]:
 		button.disabled = disabled
 	sprint_button.disabled = disabled or model.move_locked or model.time_stop_free_sprint
 	sprint_button.text = "时停移动 4 格" if model.time_stop_free_sprint else (
@@ -416,6 +422,73 @@ func _update_order() -> void:
 
 
 func _update_status(actor: Dictionary) -> void:
+	for child in status_rows_box.get_children():
+		status_rows_box.remove_child(child)
+		child.queue_free()
+	status_rows.clear()
+	for team in [BattleData.TEAM_A, BattleData.TEAM_B]:
+		var team_color := COLOR_BLUE if team == BattleData.TEAM_A else COLOR_RED
+		var team_label := Label.new()
+		team_label.text = "%s 队" % ("A" if team == BattleData.TEAM_A else "B")
+		team_label.add_theme_font_size_override("font_size", 14)
+		team_label.add_theme_color_override("font_color", team_color)
+		status_rows_box.add_child(team_label)
+		for unit in model.units:
+			if int(unit["team"]) != team:
+				continue
+			var is_current: bool = int(unit["id"]) == int(actor["id"])
+			var row := HBoxContainer.new()
+			row.custom_minimum_size = Vector2(0, 53)
+			row.add_theme_constant_override("separation", 7)
+			status_rows_box.add_child(row)
+
+			var avatar := TextureRect.new()
+			avatar.custom_minimum_size = Vector2(52, 52)
+			avatar.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			avatar.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+			avatar.clip_contents = true
+			avatar.texture = load(unit.get("avatar_texture", unit["texture"]))
+			avatar.modulate = Color.WHITE if unit["alive"] else Color(0.48, 0.48, 0.52, 0.78)
+			avatar.tooltip_text = str(unit["name"])
+			row.add_child(avatar)
+
+			var details := VBoxContainer.new()
+			details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			details.add_theme_constant_override("separation", 0)
+			row.add_child(details)
+			var name_label := Label.new()
+			name_label.text = "%s%s" % ["▶ " if is_current else "", unit["name"]]
+			name_label.add_theme_font_size_override("font_size", 14)
+			name_label.add_theme_color_override("font_color", team_color if unit["alive"] else COLOR_MUTED)
+			details.add_child(name_label)
+			var hp_ratio := float(unit["hp"]) / float(unit["max_hp"])
+			var hp_color := Color("#3fbf6f") if hp_ratio > 0.5 else (COLOR_GOLD if hp_ratio > 0.25 else COLOR_RED)
+			var vitals_row := HBoxContainer.new()
+			vitals_row.add_theme_constant_override("separation", 8)
+			details.add_child(vitals_row)
+			var hp_label := Label.new()
+			hp_label.text = "HP %d/%d" % [unit["hp"], unit["max_hp"]]
+			hp_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			hp_label.add_theme_font_size_override("font_size", 12)
+			hp_label.add_theme_color_override("font_color", hp_color)
+			vitals_row.add_child(hp_label)
+			var ap_label := Label.new()
+			ap_label.text = "AP %d/%d" % [unit["ap"], BattleData.MAX_AP]
+			ap_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+			ap_label.add_theme_font_size_override("font_size", 11)
+			ap_label.add_theme_color_override("font_color", Color("#f4a5da"))
+			vitals_row.add_child(ap_label)
+			var state_label := Label.new()
+			var state_text := _compact_status(unit)
+			state_label.text = "%s  S %.1f" % [state_text if not state_text.is_empty() else "待命", unit["s"]]
+			state_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+			state_label.add_theme_font_size_override("font_size", 11)
+			state_label.add_theme_color_override("font_color", COLOR_MUTED)
+			details.add_child(state_label)
+			status_rows[int(unit["id"])] = {"row": row, "avatar": avatar, "ap_label": ap_label, "name_label": name_label, "hp_label": hp_label}
+
+
+func _update_status_text(actor: Dictionary) -> void:
 	var lines: Array[String] = []
 	for team in [BattleData.TEAM_A, BattleData.TEAM_B]:
 		var team_color := "#3589e0" if team == BattleData.TEAM_A else "#ee232f"
@@ -453,7 +526,7 @@ func _compact_status(unit: Dictionary) -> String:
 		effects.append("残影")
 	if unit["accuracy_up"]:
 		effects.append("照明")
-	if unit["hamon_guard"]:
+	if unit["crystal_guard"]:
 		effects.append("护体")
 	if int(unit["bind_turns"]) > 0:
 		effects.append("束缚")
@@ -491,6 +564,10 @@ func _update_target_info() -> void:
 		)
 		return
 	var target: Dictionary = candidates[0]
+	for candidate in candidates:
+		if int(candidate["id"]) == hovered_unit_id:
+			target = candidate
+			break
 	var preview := model.preview_against(target["id"], pending_skill if ui_mode == UiMode.SKILL_TARGET else {})
 	var hit_color := "#3fbf6f" if preview["hit"] >= 0.8 else ("#ffd241" if preview["hit"] >= 0.5 else "#ee232f")
 	target_label.text = (
@@ -531,8 +608,7 @@ func _update_highlights() -> void:
 							highlights[cell] = "move" if total_steps <= 2 else "sprint"
 		UiMode.ATTACK_TARGET:
 			for target in model.living_units(1 - int(actor["team"])):
-				if model.can_target_unit(target["id"]):
-					highlights[target["pos"]] = "attack"
+				_add_hit_highlight(highlights, target, {})
 		UiMode.SKILL_TARGET:
 			if pending_skill.get("target", "") == "cell":
 				for y in 6:
@@ -544,8 +620,28 @@ func _update_highlights() -> void:
 				var team: int = actor["team"] if pending_skill.get("target", "") == "ally" else 1 - int(actor["team"])
 				for target in model.living_units(team):
 					if model.can_target_unit(target["id"], pending_skill):
-						highlights[target["pos"]] = "skill"
+						if pending_skill.get("target", "") == "enemy" and _skill_uses_hit_roll(pending_skill):
+							_add_hit_highlight(highlights, target, pending_skill)
+						else:
+							highlights[target["pos"]] = "skill"
 	board.set_highlights(highlights)
+
+
+func _add_hit_highlight(highlights: Dictionary, target: Dictionary, skill_data: Dictionary) -> void:
+	var cell: Vector2i = target["pos"]
+	var hit := float(model.preview_against(target["id"], skill_data)["hit"])
+	if highlights.has(cell) and highlights[cell] is Dictionary:
+		var previous: Dictionary = highlights[cell]
+		var count := int(previous.get("count", 1))
+		previous["hit"] = (float(previous["hit"]) * count + hit) / float(count + 1)
+		previous["count"] = count + 1
+		highlights[cell] = previous
+	else:
+		highlights[cell] = {"kind": "hit", "hit": hit, "count": 1}
+
+
+func _skill_uses_hit_roll(skill_data: Dictionary) -> bool:
+	return skill_data.get("effect", "") in ["damage", "crit_strike", "core_pierce", "drain", "burn", "delay", "bind", "area"]
 
 
 func _instruction_for_mode() -> String:
@@ -553,7 +649,7 @@ func _instruction_for_mode() -> String:
 		UiMode.MOVE:
 			return "点击格子或 WASD 移动；Shift 冲刺；Esc 撤销全部移动"
 		UiMode.ATTACK_TARGET:
-			return "选择普攻目标；同格多人可用 Tab/弹窗选择；Esc 取消"
+			return "点击角色本体指定目标；格子颜色越深命中率越高；Esc 取消"
 		UiMode.SKILL_LIST:
 			return "再次选择当前技能以发动；Esc 返回" if not previewed_skill_id.is_empty() else "选择技能（Num1~Num4）查看详情；Esc 返回"
 		UiMode.SKILL_TARGET:
@@ -566,6 +662,7 @@ func _select_attack() -> void:
 	ui_mode = UiMode.ATTACK_TARGET
 	pending_skill = {}
 	previewed_skill_id = ""
+	board.set_targeted_unit(-1)
 	_refresh()
 
 
@@ -583,7 +680,7 @@ func _rebuild_skill_list() -> void:
 		skill_list.remove_child(child)
 		child.queue_free()
 	var actor := model.current_unit()
-	stand_preview.texture = load(actor["texture"])
+	stand_preview.texture = load(actor.get("portrait_texture", actor["texture"]))
 	var title := Label.new()
 	title.text = "%s / %s" % [actor["name"], actor["stand"]]
 	title.add_theme_font_size_override("font_size", 22)
@@ -627,61 +724,11 @@ func _range_text(skill_data: Dictionary) -> String:
 
 
 func _skill_summary(skill_data: Dictionary) -> String:
-	match str(skill_data["id"]):
-		"star_finger": return "必中 1.0x"
-		"ora_ora": return "2段 x1.0"
-		"counter_charge": return "蓄力 / 减伤20%"
-		"star_platinum_world": return "时停 / 额外行动"
-		"emerald_splash": return "必中 1.2x"
-		"hierophant_mark": return "标记 / 命中+20%"
-		"barrier": return "1.6x / 延后一档"
-		"barrier_bind": return "0.6x / 束缚"
-		"thrust": return "1.0x / 暴击+20%"
-		"blade_combo": return "3段 x0.7"
-		"armor_off": return "速度x1.5 / 脱甲"
-		"afterimage": return "闪避翻倍"
-		"knives": return "0.8x"
-		"muda_muda": return "2段 x1.0"
-		"blood_drain": return "1.0x / 50%吸血"
-		"the_world": return "时停 / 免费移动"
-		"flame_spray": return "1.1x / 点燃"
-		"cross_fire": return "十字 AOE 1.6x"
-		"fire_wall": return "入格伤害 0.4x"
-		"illumination": return "下次攻击命中+20%"
-		"hamon": return "1.0x / 克制吸血鬼"
-		"hermit_bind": return "0.6x / 束缚"
-		"spirit_photo": return "队友行动提前"
-		"hamon_guard": return "减伤30% / 反弹20%"
-		_: return ""
+	return MenuThemeData.skill_summary(skill_data)
 
 
 func _skill_description(skill_data: Dictionary) -> String:
-	match str(skill_data["id"]):
-		"star_finger": return "对 0~2 格敌人造成 1.0 倍伤害。本次攻击必中。"
-		"ora_ora": return "对贴身敌人连续攻击 2 段，每段 1.0 倍伤害；每段独立判定命中与暴击。"
-		"counter_charge": return "下一次物理攻击提升至 1.5 倍；蓄力期间受伤则提升至 2.0 倍。本回合减伤 20%。"
-		"star_platinum_world": return "停止时间并获得一次完整额外行动。整个时停只推进一次 S，额外行动中不能再次时停。"
-		"emerald_splash": return "对 3~8 格敌人造成 1.2 倍伤害。本次攻击必中。"
-		"hierophant_mark": return "标记 3~10 格敌人。标记持续到目标完成下一次行动，我方攻击该目标时命中率增加 20 个百分点。"
-		"barrier": return "造成 1.6 倍伤害；命中后令目标 S 增加一个自身行动间隔。"
-		"barrier_bind": return "造成 0.6 倍伤害并束缚目标，使其下一次行动无法移动。"
-		"thrust": return "造成 1.0 倍伤害，本次攻击的暴击率额外增加 20%。"
-		"blade_combo": return "连续攻击 3 段，每段 0.7 倍伤害；每段独立判定命中与暴击。"
-		"armor_off": return "本回合速度视为 1.5 倍、暴击率增加 10%，但防御减半；行动结束按强化速度推进 S。"
-		"afterimage": return "本回合运气翻倍，使敌方攻击更容易落空。"
-		"knives": return "对 0~3 格敌人造成 0.8 倍远程伤害。"
-		"muda_muda": return "对贴身敌人连续攻击 2 段，每段 1.0 倍伤害。"
-		"blood_drain": return "造成 1.0 倍物理伤害，并回复实际伤害量 50% 的 HP。"
-		"the_world": return "停止时间并获得一次额外行动；时停行动拥有 4 格免费移动，且整个时停只推进一次 S。"
-		"flame_spray": return "造成 1.1 倍伤害并点燃目标。点燃在目标行动开始时结算，共 2 次。"
-		"cross_fire": return "对目标格及其上下左右格内的全部敌人造成 1.6 倍伤害，不伤害友军。"
-		"fire_wall": return "在相邻格生成火墙。角色每次进入该格都会受到 0.4 倍间接伤害。"
-		"illumination": return "使下一次直接攻击指令的全部伤害段命中率增加 20 个百分点，结算后移除。"
-		"hamon": return "造成 1.0 倍物理伤害；对吸血鬼或非人目标额外提升至 1.5 倍。"
-		"hermit_bind": return "造成 0.6 倍伤害并束缚目标，使其下一次行动无法移动。"
-		"spirit_photo": return "选择一名存活队友，使其 S 减少半个自身行动间隔，但不会提前到当前行动者之前。"
-		"hamon_guard": return "本回合减伤 30%，并反弹所受贴身物理伤害的 20%。"
-		_: return _skill_summary(skill_data)
+	return MenuThemeData.skill_description(skill_data)
 
 
 func _update_skill_description(skill_data: Dictionary) -> void:
@@ -726,7 +773,17 @@ func _choose_skill(skill_data: Dictionary) -> void:
 	else:
 		skill_panel.visible = false
 		ui_mode = UiMode.SKILL_TARGET
+		board.set_targeted_unit(-1)
 		_refresh()
+
+func _perform_wait() -> void:
+	skill_panel.visible = false
+	previewed_skill_id = ""
+	pending_skill = {}
+	ui_mode = UiMode.ACTION
+	board.set_targeted_unit(-1)
+	model.perform_wait()
+
 
 func _perform_defend() -> void:
 	skill_panel.visible = false
@@ -759,6 +816,7 @@ func _cancel_or_undo() -> void:
 	elif ui_mode in [UiMode.ATTACK_TARGET, UiMode.SKILL_TARGET]:
 		pending_skill = {}
 		ui_mode = UiMode.ACTION
+		board.set_targeted_unit(-1)
 	elif ui_mode == UiMode.MOVE or model.move_path.size() > 1 or model.sprint_enabled:
 		model.undo_movement()
 		ui_mode = UiMode.ACTION
@@ -787,6 +845,22 @@ func _on_board_cell_clicked(cell: Vector2i) -> void:
 			else:
 				_select_unit_from_cell(cell, pending_skill)
 	_refresh()
+
+
+func _on_board_unit_clicked(unit_id: int) -> void:
+	if model.phase == BattleModel.PHASE_GAME_OVER:
+		return
+	if ui_mode == UiMode.ATTACK_TARGET:
+		_select_unit_direct(unit_id, {})
+	elif ui_mode == UiMode.SKILL_TARGET and pending_skill.get("target", "") != "cell":
+		_select_unit_direct(unit_id, pending_skill)
+	_refresh()
+
+
+func _select_unit_direct(unit_id: int, skill_data: Dictionary) -> void:
+	if not model.can_target_unit(unit_id, skill_data):
+		return
+	_execute_target(unit_id, skill_data)
 
 
 func _select_unit_from_cell(cell: Vector2i, skill_data: Dictionary) -> void:
@@ -823,6 +897,7 @@ func _execute_target(unit_id: int, skill_data: Dictionary) -> void:
 	else:
 		succeeded = model.perform_skill(skill_data, unit_id)
 	if succeeded:
+		board.set_targeted_unit(-1)
 		pending_skill = {}
 		previewed_skill_id = ""
 		ui_mode = UiMode.ACTION
@@ -831,6 +906,16 @@ func _execute_target(unit_id: int, skill_data: Dictionary) -> void:
 
 func _on_board_cell_hovered(cell: Vector2i) -> void:
 	hovered_cell = cell
+	_update_target_info()
+
+
+func _on_board_unit_hovered(unit_id: int) -> void:
+	hovered_unit_id = unit_id
+	var hover_skill: Dictionary = pending_skill if ui_mode == UiMode.SKILL_TARGET else {}
+	var selecting_unit: bool = ui_mode == UiMode.ATTACK_TARGET or (
+		ui_mode == UiMode.SKILL_TARGET and pending_skill.get("target", "") != "cell"
+	)
+	board.set_targeted_unit(unit_id if selecting_unit and model.can_target_unit(unit_id, hover_skill) else -1)
 	_update_target_info()
 
 
@@ -924,7 +1009,7 @@ func _run_ai_turn() -> void:
 	for skill_data in actor["skills"]:
 		if int(skill_data["cost"]) > int(actor["ap"]) or skill_data["target"] != "enemy":
 			continue
-		if skill_data["effect"] not in ["damage", "crit_strike", "hamon", "drain", "burn", "delay", "bind", "area"]:
+		if skill_data["effect"] not in ["damage", "crit_strike", "core_pierce", "drain", "burn", "delay", "bind", "area"]:
 			continue
 		for enemy in enemies:
 			if model.can_target_unit(enemy["id"], skill_data):
@@ -1004,6 +1089,8 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			_open_skill_list()
 		KEY_C:
 			_perform_defend()
+		KEY_X:
+			_perform_wait()
 		KEY_M:
 			_enter_move_mode()
 		KEY_ESCAPE:

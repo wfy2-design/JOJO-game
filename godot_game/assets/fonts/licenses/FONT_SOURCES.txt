@@ -1,4 +1,4 @@
-JOJO CTB Tactics - bundled open-source font sources
+MECHA CTB Tactics - bundled open-source font sources
 
 Smiley Sans / 得意黑 v2.0.1
 Project: https://github.com/atelier-anchor/smiley-sans

@@ -14,6 +14,35 @@ func _capture() -> void:
 	await process_frame
 	game._start_game("local")
 	await process_frame
+	await process_frame
+	_save_viewport("battle_main.png")
+
+	var overlap_cell := Vector2i(2, 2)
+	game.model.get_unit(0)["pos"] = overlap_cell
+	game.model.get_unit(3)["pos"] = overlap_cell
+	game.model.get_unit(4)["pos"] = overlap_cell
+	game.model.get_unit(5)["pos"] = Vector2i(5, 2)
+	game.model.get_unit(3)["luck"] = 0
+	game.model.get_unit(4)["luck"] = 0
+	game.model.get_unit(5)["luck"] = 0
+	game.model.current_unit_id = 0
+	game.model._start_unit_turn(true)
+	game._refresh()
+	game._select_attack()
+	await process_frame
+	await process_frame
+	_save_viewport("battle_targeting.png")
+
+	game._on_board_unit_hovered(4)
+	await process_frame
+	await process_frame
+	_save_viewport("battle_selected_target.png")
+
+	game._show_critical(0)
+	await process_frame
+	_save_viewport("battle_critical.png")
+	await create_timer(1.6).timeout
+
 	game.pause_menu.open_menu()
 	await process_frame
 	await process_frame

@@ -57,7 +57,7 @@ func start_battle(selected_mode: String = "local", seed: int = 1) -> void:
 		unit["armor_off"] = false
 		unit["afterimage"] = false
 		unit["accuracy_up"] = false
-		unit["hamon_guard"] = false
+		unit["crystal_guard"] = false
 		unit["bind_turns"] = 0
 		units.append(unit)
 	phase = PHASE_TURN
@@ -162,7 +162,7 @@ func _start_unit_turn(process_start_effects: bool) -> void:
 		actor["counter_guard"] = false
 		actor["armor_off"] = false
 		actor["afterimage"] = false
-		actor["hamon_guard"] = false
+		actor["crystal_guard"] = false
 	move_locked = int(actor["bind_turns"]) > 0
 	move_budget = 4 if in_time_stop and time_stop_free_sprint else 2
 	sprint_enabled = false
@@ -350,12 +350,12 @@ func estimate_damage(
 	multiplier: float = 1.0,
 	is_critical: bool = false,
 	physical: bool = false,
-	is_hamon: bool = false
+	is_core_piercing: bool = false
 ) -> int:
 	var raw := float(attacker["damage"]) * multiplier
 	if is_critical:
 		raw *= 1.5
-	if is_hamon and ("vampire" in defender.get("tags", []) or "non_human" in defender.get("tags", [])):
+	if is_core_piercing and ("overheated_core" in defender.get("tags", [])):
 		raw *= 1.5
 	if physical and attacker.get("counter_charge", false):
 		raw *= 2.0 if attacker.get("counter_was_hit", false) else 1.5
@@ -372,7 +372,7 @@ func _apply_defense(raw_damage: float, defender: Dictionary, include_guards: boo
 			result *= 0.5
 		if defender.get("counter_guard", false):
 			result *= 0.8
-		if defender.get("hamon_guard", false):
+		if defender.get("crystal_guard", false):
 			result *= 0.7
 	return maxi(0, roundi(result))
 
@@ -385,18 +385,18 @@ func preview_against(target_id: int, skill_data: Dictionary = {}) -> Dictionary:
 	var hit := basic_hit_chance(attacker, defender)
 	var mult := 1.0
 	var physical := true
-	var hamon := false
+	var core_piercing := false
 	if not skill_data.is_empty():
 		hit = skill_hit_chance(attacker, defender, skill_data)
 		mult = skill_data.get("multiplier", 0.0)
 		physical = skill_data.get("physical", false)
-		hamon = skill_data.get("effect", "") == "hamon"
+		core_piercing = skill_data.get("effect", "") == "core_pierce"
 	return {
 		"distance": distance_between(attacker, defender),
 		"hit": hit,
 		"crit": critical_chance(attacker, skill_data),
-		"normal_damage": estimate_damage(attacker, defender, mult, false, physical, hamon),
-		"critical_damage": estimate_damage(attacker, defender, mult, true, physical, hamon),
+		"normal_damage": estimate_damage(attacker, defender, mult, false, physical, core_piercing),
+		"critical_damage": estimate_damage(attacker, defender, mult, true, physical, core_piercing),
 	}
 
 
@@ -452,6 +452,15 @@ func perform_defend() -> bool:
 	return true
 
 
+func perform_wait() -> bool:
+	if phase == PHASE_GAME_OVER:
+		return false
+	var actor := current_unit()
+	_push_event("wait", "%s 选择不行动" % actor["name"], actor["id"])
+	_finish_action()
+	return true
+
+
 func perform_skill(skill_data: Dictionary, target_id: int = -1, target_cell := Vector2i(-1, -1)) -> bool:
 	var actor := current_unit()
 	if phase == PHASE_GAME_OVER or skill_data.is_empty() or int(actor["ap"]) < int(skill_data["cost"]):
@@ -472,10 +481,10 @@ func perform_skill(skill_data: Dictionary, target_id: int = -1, target_cell := V
 	_push_event("skill", "%s：%s" % [actor["name"], skill_data["name"]], actor["id"])
 	var target := get_unit(target_id)
 	var consumes_accuracy: bool = actor.get("accuracy_up", false) and effect in [
-		"damage", "crit_strike", "hamon", "drain", "burn", "delay", "bind", "area",
+		"damage", "crit_strike", "core_pierce", "drain", "burn", "delay", "bind", "area",
 	]
 	match effect:
-		"damage", "crit_strike", "hamon":
+		"damage", "crit_strike", "core_pierce":
 			_resolve_damage_command(actor, target, skill_data, false)
 		"drain":
 			var dealt := _resolve_damage_command(actor, target, skill_data, false)
@@ -498,7 +507,7 @@ func perform_skill(skill_data: Dictionary, target_id: int = -1, target_cell := V
 			_resolve_area(actor, target["pos"], skill_data)
 		"mark":
 			target["marked"] = true
-			_push_event("status", "%s 被法皇标记" % target["name"], target["id"])
+			_push_event("status", "%s 被镜域标记" % target["name"], target["id"])
 		"counter_charge":
 			actor["counter_charge"] = true
 			actor["counter_was_hit"] = false
@@ -509,8 +518,8 @@ func perform_skill(skill_data: Dictionary, target_id: int = -1, target_cell := V
 			actor["afterimage"] = true
 		"accuracy_up":
 			actor["accuracy_up"] = true
-		"hamon_guard":
-			actor["hamon_guard"] = true
+		"crystal_guard":
+			actor["crystal_guard"] = true
 		"advance":
 			target["s"] = maxf(float(actor["s"]), float(target["s"]) - 50.0 / float(target["speed"]))
 			_push_event("status", "%s 的行动提前" % target["name"], target["id"])
@@ -520,8 +529,8 @@ func perform_skill(skill_data: Dictionary, target_id: int = -1, target_cell := V
 				"owner_turns_left": 2,
 			})
 			_push_event("field", "火墙生成于 (%d,%d)" % [target_cell.x, target_cell.y], actor["id"])
-		"time_stop", "time_stop_dio":
-			time_stop_free_sprint = effect == "time_stop_dio"
+		"time_stop", "time_stop_free":
+			time_stop_free_sprint = effect == "time_stop_free"
 			selected_skill = {"time_stop_triggered": true}
 	if consumes_accuracy:
 		actor["accuracy_up"] = false
@@ -568,13 +577,13 @@ func _resolve_damage_command(
 			float(skill_data.get("multiplier", 1.0)),
 			critical,
 			physical,
-			skill_data.get("effect", "") == "hamon"
+			skill_data.get("effect", "") == "core_pierce"
 		)
 		var actual := _apply_damage(defender, damage, attacker, skill_data["name"], critical, physical)
 		total_dealt += actual
-		if defender.get("hamon_guard", false) and physical and distance <= 1 and actual > 0 and attacker["alive"]:
+		if defender.get("crystal_guard", false) and physical and distance <= 1 and actual > 0 and attacker["alive"]:
 			var reflected := maxi(1, roundi(float(actual) * 0.2))
-			_apply_damage(attacker, reflected, defender, "波纹反弹", false, false)
+			_apply_damage(attacker, reflected, defender, "晶翼反弹", false, false)
 	if uses_charge:
 		attacker["counter_charge"] = false
 		attacker["counter_was_hit"] = false

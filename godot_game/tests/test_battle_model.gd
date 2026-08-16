@@ -37,6 +37,7 @@ func _run() -> void:
 	_test_mark_and_advance()
 	_test_fire_wall_path_and_undo()
 	_test_field_cleanup()
+	_test_wait_action()
 	_test_victory()
 	if failures == 0:
 		print("ALL TESTS PASSED")
@@ -56,7 +57,7 @@ func _test_initial_state_and_ctb() -> void:
 		_check(unit["pos"] == Vector2i(5, 5), "%s 位于 B 队出生点" % unit["name"])
 	var order := battle.preview_turn_order(3)
 	_check(order == [3, 0, 2], "CTB 初始顺序按 S、速度、ID 排列")
-	_check(battle.current_unit_id == 3, "迪奥速度最高并先手")
+	_check(battle.current_unit_id == 3, "绯棘速度最高并先手")
 
 
 func _test_skill_catalog() -> void:
@@ -64,6 +65,16 @@ func _test_skill_catalog() -> void:
 	var skill_count := 0
 	for character in BattleData.characters():
 		_check(character["skills"].size() == 4, "%s 拥有四个技能" % character["name"])
+		_check(ResourceLoader.exists(character["texture"]), "%s 透明人物素材可加载" % character["name"])
+		var portrait: Texture2D = load(character["texture"])
+		var portrait_image := portrait.get_image()
+		_check(portrait_image.detect_alpha() != Image.ALPHA_NONE, "%s 人物素材包含透明通道" % character["name"])
+		_check(portrait_image.get_width() < 1000, "%s 人物素材已裁除横向空白" % character["name"])
+		_check(ResourceLoader.exists(character["avatar_texture"]), "%s 头像框素材可加载" % character["name"])
+		var avatar_image := (load(character["avatar_texture"]) as Texture2D).get_image()
+		_check(avatar_image.detect_alpha() != Image.ALPHA_NONE, "%s 头像框包含透明通道" % character["name"])
+		_check(avatar_image.get_pixel(0, 0).a < 0.1, "%s 头像框白底已透明化" % character["name"])
+		_check(ResourceLoader.exists(character["portrait_texture"]), "%s 立绘素材可加载" % character["name"])
 		_check(ResourceLoader.exists(character["critical_texture"]), "%s 弱点击破素材可加载" % character["name"])
 		for skill_data in character["skills"]:
 			skill_count += 1
@@ -96,7 +107,7 @@ func _test_hit_and_damage_formulas() -> void:
 	dio["pos"] = Vector2i(1, 0)
 	_approx(battle.basic_hit_chance(jotaro, dio), 0.72, 0.0001, "近战基础命中受目标运气影响")
 	dio["marked"] = true
-	_approx(battle.basic_hit_chance(jotaro, dio), 0.92, 0.0001, "法皇标记增加 20 个百分点")
+	_approx(battle.basic_hit_chance(jotaro, dio), 0.92, 0.0001, "镜域标记增加 20 个百分点")
 	dio["marked"] = false
 	dio["pos"] = Vector2i(5, 1)
 	_approx(battle.basic_hit_chance(jotaro, dio), 0.0, 0.0001, "R_max 边界命中率为零")
@@ -116,11 +127,11 @@ func _test_time_stop() -> void:
 	dio["ap"] = 5
 	var before: float = dio["s"]
 	var time_stop: Dictionary = dio["skills"][3]
-	_check(battle.perform_skill(time_stop), "可释放世界·时停")
+	_check(battle.perform_skill(time_stop), "可释放赤域停滞")
 	_check(battle.in_time_stop, "时停后进入额外行动")
 	_check(battle.current_unit_id == dio["id"], "额外行动仍由时停者执行")
 	_approx(float(dio["s"]), before, 0.0001, "第一次行动不推进 S")
-	_check(battle.move_budget == 4, "DIO 时停额外行动有 4 格免费移动")
+	_check(battle.move_budget == 4, "绯棘时停额外行动有 4 格免费移动")
 	_check(battle.move_step(Vector2i.LEFT), "时停中可以免费移动")
 	_check(battle.undo_movement(), "时停移动可以撤销")
 	_check(battle.current_unit()["pos"] == Vector2i(5, 5), "撤销恢复时停行动起点")
@@ -161,8 +172,8 @@ func _test_mark_and_advance() -> void:
 	battle._start_unit_turn(true)
 	var kakyoin := battle.get_unit(1)
 	var mark: Dictionary = kakyoin["skills"][1]
-	_check(battle.perform_skill(mark, 3), "法皇标记可选择远程敌人")
-	_check(bool(battle.get_unit(3)["marked"]), "法皇标记写入目标状态")
+	_check(battle.perform_skill(mark, 3), "镜域标记可选择远程敌人")
+	_check(bool(battle.get_unit(3)["marked"]), "镜域标记写入目标状态")
 
 	battle = _new_battle()
 	var joseph := battle.get_unit(5)
@@ -173,7 +184,7 @@ func _test_mark_and_advance() -> void:
 	battle._start_unit_turn(true)
 	var advance: Dictionary = joseph["skills"][2]
 	_check(battle.perform_skill(advance, 3), "念写·先机可选择队友")
-	_approx(float(dio["s"]), 30.0 - 50.0 / 15.0, 0.0001, "念写推进半个目标行动间隔")
+	_approx(float(dio["s"]), 30.0 - 50.0 / 15.0, 0.0001, "冰镜推进半个目标行动间隔")
 
 
 func _test_fire_wall_path_and_undo() -> void:
@@ -206,6 +217,26 @@ func _test_field_cleanup() -> void:
 	_check(battle.fields.size() == 1, "退场前火墙存在")
 	battle._defeat_unit(battle.get_unit(4))
 	_check(battle.fields.is_empty(), "施放者退场后清理其火墙")
+
+
+func _test_wait_action() -> void:
+	var battle := _new_battle()
+	var actor := battle.current_unit()
+	var actor_id := int(actor["id"])
+	var initial_s := float(actor["s"])
+	_check(battle.perform_wait(), "移动前可以选择不行动")
+	_check(float(battle.get_unit(actor_id)["s"]) > initial_s, "不行动正常推进当前角色 S")
+	_check(battle.events.any(func(event: Dictionary) -> bool: return event["type"] == "wait"), "不行动写入战斗记录")
+
+	battle = _new_battle()
+	actor = battle.current_unit()
+	actor_id = int(actor["id"])
+	_check(battle.move_step(Vector2i.LEFT), "不行动前可以先移动")
+	var moved_position: Vector2i = actor["pos"]
+	var remaining_ap := int(actor["ap"])
+	_check(battle.perform_wait(), "移动后可以选择不行动")
+	_check(battle.get_unit(actor_id)["pos"] == moved_position, "不行动保留已经完成的移动")
+	_check(int(battle.get_unit(actor_id)["ap"]) == remaining_ap, "不行动本身不消耗 AP")
 
 
 func _test_victory() -> void:
