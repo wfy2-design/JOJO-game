@@ -37,6 +37,16 @@ godot --path E:\game\godot_game --editor
 
 直接运行项目后选择“本地双人”、“玩家对 AI”或“游戏教程”；前两者先进入选角（蛇形 1-2-2-1），选满 3 对 3 后进入战斗。
 
+## 导出 Windows 可执行文件
+
+需要 Godot 4.5 的导出模板（export templates）。安装模板后：
+
+```powershell
+godot --headless --path E:\game\godot_game --export-release "Windows Desktop" "E:\game\MECHA CTB Tactics.exe"
+```
+
+`export_presets.cfg` 已启用 `embed_pck`，导出结果为**单个 .exe**，双击即玩，无需安装 Godot。
+
 ## 测试
 
 ```powershell
