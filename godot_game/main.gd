@@ -81,6 +81,8 @@ func _ready() -> void:
 	start_flow.mode_confirmed.connect(_on_start_flow_confirmed)
 	start_flow.tutorial_requested.connect(_open_tutorial)
 	start_flow.exit_requested.connect(func() -> void: get_tree().quit())
+	start_flow.archive_requested.connect(_open_archive_from_title)
+	start_flow.settings_requested.connect(_open_settings_from_title)
 	add_child(start_flow)
 
 
@@ -345,6 +347,20 @@ func _on_start_flow_confirmed(selected_mode: String, team_size: int, board_size:
 	if start_flow != null:
 		start_flow.visible = false
 	_open_draft(selected_mode, team_size, board_size, random_spawn)
+
+
+func _open_archive_from_title() -> void:
+	if start_flow != null:
+		start_flow.visible = false
+	if pause_menu != null:
+		pause_menu.open_page(PauseMenu.Page.ARCHIVE)
+
+
+func _open_settings_from_title() -> void:
+	if start_flow != null:
+		start_flow.visible = false
+	if pause_menu != null:
+		pause_menu.open_page(PauseMenu.Page.SETTINGS)
 
 
 func _return_to_title() -> void:

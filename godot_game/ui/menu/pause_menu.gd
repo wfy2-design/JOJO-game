@@ -21,8 +21,12 @@ const BODY_FONT := preload("res://assets/fonts/SourceHanSansCN-Bold.otf")
 const NUMBER_FONT := preload("res://assets/fonts/BebasNeue-Regular.ttf")
 const JAPANESE_FONT := preload("res://assets/fonts/YujiSyuku-Regular.ttf")
 const SILHOUETTE_TRANSITION_SCRIPT := preload("res://ui/menu/silhouette_transition.gd")
+const PAGE_COVER_SHADER := preload("res://ui/menu/menu_page_cover.gdshader")
+const PAGE_COVER_IN_DURATION := 0.18
+const PAGE_COVER_OUT_DURATION := 0.16
 
 var enabled := false
+var opened_from_title := false
 var can_open_callback := Callable()
 var current_page := Page.MAIN
 var current_character_key := "night_chain"
@@ -36,6 +40,9 @@ var _tree_was_paused := false
 var _theme_tween: Tween
 var _word_tween: Tween
 var _hover_focus_generation := 0
+var page_transition_active := false
+var _page_transition_tween: Tween
+var _page_transition_generation := 0
 
 var overlay: Control
 var blur_rect: ColorRect
@@ -58,8 +65,8 @@ var archive_skill_button: Button
 var radar_chart: RadarChart
 var rule_title: Label
 var rule_body: RichTextLabel
-var rule_visual: Label
 var rule_counter: Label
+var page_cover: ColorRect
 var confirm_layer: ColorRect
 var confirm_title: Label
 var confirm_yes: Button
@@ -96,6 +103,7 @@ func open_menu() -> bool:
 func close_menu() -> void:
 	if not visible:
 		return
+	_cancel_page_transition()
 	confirm_layer.visible = false
 	visible = false
 	get_tree().paused = _tree_was_paused
@@ -103,6 +111,9 @@ func close_menu() -> void:
 
 func _input(event: InputEvent) -> void:
 	if not event is InputEventKey or not event.pressed or event.echo:
+		return
+	if visible and page_transition_active:
+		get_viewport().set_input_as_handled()
 		return
 	if event.keycode == KEY_TAB:
 		if visible:
@@ -185,6 +196,16 @@ void fragment() {
 	_place(bottom_hint, Rect2(300, 836, 1000, 42))
 	overlay.add_child(bottom_hint)
 
+	page_cover = ColorRect.new()
+	page_cover.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	page_cover.color = Color.WHITE
+	page_cover.mouse_filter = Control.MOUSE_FILTER_STOP
+	page_cover.visible = false
+	var page_cover_material := ShaderMaterial.new()
+	page_cover_material.shader = PAGE_COVER_SHADER
+	page_cover.material = page_cover_material
+	overlay.add_child(page_cover)
+
 	_build_confirmation()
 
 
@@ -192,6 +213,7 @@ func _show_main_page() -> void:
 	current_page = Page.MAIN
 	menu_title.text = "MENU"
 	subtitle.text = "PAUSED / MECHA CTB TACTICS"
+	bottom_hint.visible = true
 	bottom_hint.text = "ARROWS  SELECT    ENTER  CONFIRM    TAB / ESC  BACK"
 	_clear_content()
 	main_buttons.clear()
@@ -274,13 +296,69 @@ func _focus_main_button_after_delay(button: Button) -> void:
 
 
 func _activate_main_item(item_id: String) -> void:
+	if page_transition_active:
+		return
 	match item_id:
 		"continue": close_menu()
-		"archive": _show_archive_page()
-		"guide": _show_guide_page()
-		"tutorial": _show_tutorial_page()
-		"settings": _show_settings_page()
+		"archive": _request_page(_show_archive_page)
+		"guide": _request_page(_show_guide_page)
+		"tutorial": _request_page(_show_tutorial_page)
+		"settings": _request_page(_show_settings_page)
 		"exit": _show_confirmation("exit", "确定要退出游戏吗？")
+
+
+func _request_page(page_builder: Callable) -> void:
+	if page_transition_active or not page_builder.is_valid():
+		return
+	page_transition_active = true
+	_page_transition_generation += 1
+	var run_id := _page_transition_generation
+	_hover_focus_generation += 1
+	var cover_material := page_cover.material as ShaderMaterial
+	cover_material.set_shader_parameter("primary_color", current_primary)
+	cover_material.set_shader_parameter("secondary_color", current_secondary)
+	cover_material.set_shader_parameter("direction", 1.0)
+	cover_material.set_shader_parameter("progress", 0.0)
+	page_cover.visible = true
+	silhouette_transition.play_page_cover(1)
+
+	_page_transition_tween = create_tween()
+	_page_transition_tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	_page_transition_tween.tween_method(_set_page_cover_progress, 0.0, 1.0, PAGE_COVER_IN_DURATION)
+	await _page_transition_tween.finished
+	if run_id != _page_transition_generation or not visible:
+		return
+
+	page_builder.call()
+	await get_tree().process_frame
+	if run_id != _page_transition_generation or not visible:
+		return
+	cover_material.set_shader_parameter("direction", -1.0)
+	_page_transition_tween = create_tween()
+	_page_transition_tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_page_transition_tween.tween_method(_set_page_cover_progress, 1.0, 0.0, PAGE_COVER_OUT_DURATION)
+	await _page_transition_tween.finished
+	if run_id != _page_transition_generation:
+		return
+	page_cover.visible = false
+	page_transition_active = false
+	_page_transition_tween = null
+
+
+func _set_page_cover_progress(value: float) -> void:
+	(page_cover.material as ShaderMaterial).set_shader_parameter("progress", value)
+
+
+func _cancel_page_transition() -> void:
+	_page_transition_generation += 1
+	if _page_transition_tween != null and _page_transition_tween.is_valid():
+		_page_transition_tween.kill()
+	_page_transition_tween = null
+	page_transition_active = false
+	if page_cover != null:
+		page_cover.visible = false
+	if silhouette_transition != null:
+		silhouette_transition.reset_page_cover_pose()
 
 
 func _show_archive_page() -> void:
@@ -288,7 +366,7 @@ func _show_archive_page() -> void:
 	silhouette_transition.visible = false
 	menu_title.text = "ARCHIVE"
 	subtitle.text = "人物与技能图鉴"
-	bottom_hint.text = "选择角色与标签页查看资料    TAB / ESC  返回"
+	bottom_hint.visible = false
 	_clear_content()
 
 	var list_box := VBoxContainer.new()
@@ -351,6 +429,10 @@ func _show_archive_page() -> void:
 	archive_content.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	details_box.add_child(archive_content)
 
+	var back := _text_button("返回", Vector2(250, 48))
+	_place(back, Rect2(56, 792, 250, 48))
+	back.pressed.connect(_go_back)
+	content_root.add_child(back)
 	selected_character_index = clampi(selected_character_index, 0, characters.size() - 1)
 	_select_archive_character(selected_character_index)
 
@@ -443,7 +525,7 @@ func _show_guide_page() -> void:
 	silhouette_transition.visible = false
 	menu_title.text = "GUIDE"
 	subtitle.text = "游戏规则介绍"
-	bottom_hint.text = "左右按钮翻页    TAB / ESC  返回"
+	bottom_hint.visible = false
 	_clear_content()
 
 	var page_panel := PanelContainer.new()
@@ -455,7 +537,7 @@ func _show_guide_page() -> void:
 	page_panel.add_child(row)
 
 	var text_box := VBoxContainer.new()
-	text_box.custom_minimum_size = Vector2(880, 0)
+	text_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	text_box.add_theme_constant_override("separation", 18)
 	row.add_child(text_box)
 	rule_counter = Label.new()
@@ -479,19 +561,6 @@ func _show_guide_page() -> void:
 	rule_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	text_box.add_child(rule_body)
 
-	var visual_panel := PanelContainer.new()
-	visual_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	visual_panel.add_theme_stylebox_override("panel", _panel_style(Color("#090a10"), current_secondary, 4))
-	row.add_child(visual_panel)
-	rule_visual = Label.new()
-	rule_visual.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	rule_visual.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	rule_visual.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	rule_visual.add_theme_font_override("font", NUMBER_FONT)
-	rule_visual.add_theme_font_size_override("font_size", 54)
-	rule_visual.add_theme_color_override("font_color", current_primary)
-	visual_panel.add_child(rule_visual)
-
 	var previous := _text_button("上一页", Vector2(150, 48))
 	_place(previous, Rect2(555, 784, 150, 48))
 	previous.pressed.connect(_change_rule_page.bind(-1))
@@ -500,6 +569,10 @@ func _show_guide_page() -> void:
 	_place(next, Rect2(895, 784, 150, 48))
 	next.pressed.connect(_change_rule_page.bind(1))
 	content_root.add_child(next)
+	var back := _text_button("返回", Vector2(150, 48))
+	_place(back, Rect2(1200, 784, 150, 48))
+	back.pressed.connect(_go_back)
+	content_root.add_child(back)
 	_update_rule_page()
 
 
@@ -513,8 +586,7 @@ func _update_rule_page() -> void:
 	rule_counter.text = "%s  /  04" % page["number"]
 	rule_title.text = str(page["title"])
 	rule_body.text = str(page["body"])
-	var visuals := ["3 VS 3\n\n6 × 6", "DISTANCE\n\n|X1-X2| + |Y1-Y2|", "CTB\n\nS = 100 / p", "CRITICAL\n\n× 1.5"]
-	rule_visual.text = visuals[rule_page_index]
+	pass
 
 
 func _show_tutorial_page() -> void:
@@ -522,7 +594,7 @@ func _show_tutorial_page() -> void:
 	silhouette_transition.visible = false
 	menu_title.text = "TUTORIAL"
 	subtitle.text = "游戏教程"
-	bottom_hint.text = "上一步 / 下一步 / 重播 / 返回    TAB / ESC  返回菜单"
+	bottom_hint.visible = false
 	_clear_content()
 	var tutorial_controller := TutorialController.new()
 	tutorial_controller.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -535,7 +607,7 @@ func _show_settings_page() -> void:
 	silhouette_transition.visible = false
 	menu_title.text = "SETTINGS"
 	subtitle.text = "系统设置"
-	bottom_hint.text = "设置自动保存    TAB / ESC  返回"
+	bottom_hint.visible = false
 	_clear_content()
 
 	var settings_panel := PanelContainer.new()
@@ -731,12 +803,36 @@ func _confirm_yes() -> void:
 			return_to_title_requested.emit()
 
 
+func open_page(page: Page) -> void:
+	opened_from_title = true
+	_tree_was_paused = get_tree().paused
+	visible = true
+	confirm_layer.visible = false
+	match page:
+		Page.ARCHIVE:
+			_show_archive_page()
+		Page.SETTINGS:
+			_show_settings_page()
+		Page.GUIDE:
+			_show_guide_page()
+		Page.TUTORIAL:
+			_show_tutorial_page()
+		_:
+			_show_main_page()
+	get_tree().paused = true
+
+
 func _go_back() -> void:
 	if confirm_layer.visible:
 		confirm_layer.visible = false
 		return
 	if current_page == Page.MAIN:
 		close_menu()
+		opened_from_title = false
+	elif opened_from_title:
+		opened_from_title = false
+		close_menu()
+		return_to_title_requested.emit()
 	else:
 		_show_main_page()
 

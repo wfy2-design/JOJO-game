@@ -55,10 +55,20 @@ func _capture() -> void:
 	await create_timer(0.18, true).timeout
 	_save_viewport("menu_transition_end.png")
 
-
-	game.pause_menu._show_archive_page()
+	game.pause_menu._activate_main_item("archive")
 	await process_frame
+	_save_viewport("menu_page_cover_start.png")
+	await create_timer(0.11, true).timeout
 	await process_frame
+	_save_viewport("menu_page_cover_middle.png")
+	while game.pause_menu.current_page == PauseMenu.Page.MAIN:
+		await process_frame
+	_save_viewport("menu_page_cover_peak.png")
+	await create_timer(0.08, true).timeout
+	await process_frame
+	_save_viewport("menu_page_cover_reveal.png")
+	while game.pause_menu.page_transition_active:
+		await process_frame
 	_save_viewport("menu_archive.png")
 
 	game.pause_menu._show_settings_page()

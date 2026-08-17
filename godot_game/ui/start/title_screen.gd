@@ -5,6 +5,8 @@ extends Control
 
 signal enter_requested
 signal exit_requested
+signal archive_requested
+signal settings_requested
 
 const TITLE_FONT := preload("res://assets/fonts/BebasNeue-Regular.ttf")
 const BODY_FONT := preload("res://assets/fonts/simhei.ttf")
@@ -18,6 +20,8 @@ const COLOR_PANEL := Color("#14161f")
 
 var enter_button: Button
 var exit_button: Button
+var archive_button: Button
+var settings_button: Button
 var portraits: Array[TextureRect] = []
 var intro_tween: Tween
 var animating := false
@@ -76,13 +80,33 @@ func _build() -> void:
 	add_child(enter_button)
 	_style_button(enter_button, COLOR_RED)
 
+	archive_button = Button.new()
+	archive_button.text = "人物图鉴"
+	archive_button.custom_minimum_size = Vector2(170, 48)
+	archive_button.add_theme_font_override("font", BODY_FONT)
+	archive_button.add_theme_font_size_override("font_size", 18)
+	archive_button.pressed.connect(func() -> void: archive_requested.emit())
+	_place(archive_button, Rect2(74, 620, 170, 48))
+	add_child(archive_button)
+	_style_button(archive_button, COLOR_MUTED)
+
+	settings_button = Button.new()
+	settings_button.text = "设置"
+	settings_button.custom_minimum_size = Vector2(170, 48)
+	settings_button.add_theme_font_override("font", BODY_FONT)
+	settings_button.add_theme_font_size_override("font_size", 18)
+	settings_button.pressed.connect(func() -> void: settings_requested.emit())
+	_place(settings_button, Rect2(254, 620, 170, 48))
+	add_child(settings_button)
+	_style_button(settings_button, COLOR_MUTED)
+
 	exit_button = Button.new()
 	exit_button.text = "退出"
 	exit_button.custom_minimum_size = Vector2(160, 48)
 	exit_button.add_theme_font_override("font", BODY_FONT)
 	exit_button.add_theme_font_size_override("font_size", 18)
 	exit_button.pressed.connect(func() -> void: exit_requested.emit())
-	_place(exit_button, Rect2(74, 620, 160, 48))
+	_place(exit_button, Rect2(74, 690, 160, 48))
 	add_child(exit_button)
 	_style_button(exit_button, COLOR_MUTED)
 
@@ -118,7 +142,7 @@ func _play_intro() -> void:
 		portrait.position += Vector2(42.0 - float(index) * 16.0, 0.0)
 		intro_tween.tween_property(portrait, "modulate:a", 1.0, 0.45).set_delay(0.12 + float(index) * 0.12)
 		intro_tween.tween_property(portrait, "position", portrait.position - Vector2(42.0 - float(index) * 16.0, 0.0), 0.45).set_delay(0.12 + float(index) * 0.12)
-	for control in [enter_button, exit_button]:
+	for control in [enter_button, archive_button, settings_button, exit_button]:
 		control.modulate.a = 0.0
 		intro_tween.tween_property(control, "modulate:a", 1.0, 0.3).set_delay(0.62)
 	intro_tween.chain().tween_callback(func() -> void: animating = false)
@@ -137,7 +161,7 @@ func _skip_intro() -> void:
 	animating = false
 	for portrait in portraits:
 		portrait.modulate.a = 1.0
-	for control in [enter_button, exit_button]:
+	for control in [enter_button, archive_button, settings_button, exit_button]:
 		control.modulate.a = 1.0
 
 

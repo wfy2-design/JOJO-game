@@ -63,9 +63,37 @@ func _run() -> void:
 
 	game.pause_menu._select_main_item(1, false)
 	_check(game.pause_menu.current_character_key == "crimson_thorn", "ARCHIVE 对应绯棘主题")
-	game.pause_menu._show_archive_page()
+	game.pause_menu._activate_main_item("archive")
+	_check(game.pause_menu.page_transition_active, "点击子页面后锁定重复激活")
+	_check(game.pause_menu.page_cover.visible, "点击子页面后显示全屏撕裂遮罩")
+	game.pause_menu._activate_main_item("settings")
+	var escape_event := InputEventKey.new()
+	escape_event.keycode = KEY_ESCAPE
+	escape_event.physical_keycode = KEY_ESCAPE
+	escape_event.pressed = true
+	Input.parse_input_event(escape_event)
+	await process_frame
+	_check(
+		game.pause_menu.current_page == PauseMenu.Page.MAIN
+		and game.pause_menu.page_transition_active,
+		"转场期间忽略重复点击和返回输入"
+	)
+	_check(game.pause_menu.silhouette_transition.scale.x > 1.0, "点击后当前剪影会放大冲屏")
+	await create_timer(0.22, true).timeout
 	_check(game.pause_menu.current_page == PauseMenu.Page.ARCHIVE, "可进入中文图鉴页")
 	_check(not game.pause_menu.silhouette_transition.visible, "进入子页面后隐藏主菜单剪影")
+	_check(game.pause_menu.page_cover.visible, "页面创建后遮罩执行反向揭幕")
+	await create_timer(0.18, true).timeout
+	_check(not game.pause_menu.page_transition_active, "页面揭幕后释放输入锁")
+	_check(not game.pause_menu.page_cover.visible, "页面揭幕后隐藏全屏遮罩")
+	_check(not game.pause_menu.bottom_hint.visible, "图鉴页不显示底部重复提示文字")
+	var archive_back: Button = null
+	for child in game.pause_menu.content_root.get_children():
+		if child is Button and child.text == "返回":
+			archive_back = child
+			break
+	_check(archive_back != null, "图鉴页存在返回按钮")
+	_check(archive_back != null and archive_back.position.x < 320.0, "图鉴返回按钮位于屏幕左侧")
 	game.pause_menu._select_archive_character(5)
 	_check(game.pause_menu.archive_name.text.contains("霜翊"), "图鉴包含第六名角色霜翊")
 	_check(not game.pause_menu.archive_story.text.is_empty(), "图鉴显示角色背景故事")
@@ -75,12 +103,16 @@ func _run() -> void:
 	_check(skill_box.get_child_count() == 4, "图鉴技能页显示角色全部四个技能")
 
 	game.pause_menu._show_guide_page()
+	_check(not game.pause_menu.bottom_hint.visible, "规则页不显示底部重复提示文字")
 	for index in MenuThemeData.RULE_PAGES.size():
 		game.pause_menu.rule_page_index = index
 		game.pause_menu._update_rule_page()
 		_check(game.pause_menu.rule_title.text == MenuThemeData.RULE_PAGES[index]["title"], "规则第 %d 页内容可访问" % (index + 1))
 
+	game.pause_menu._show_tutorial_page()
+	_check(not game.pause_menu.bottom_hint.visible, "教程页不显示底部重复提示文字")
 	game.pause_menu._show_settings_page()
+	_check(not game.pause_menu.bottom_hint.visible, "设置页不显示底部重复提示文字")
 	for bus_name in ["BGM", "SE", "Voice"]:
 		_check(AudioServer.get_bus_index(bus_name) >= 0, "存在 %s 音频总线接口" % bus_name)
 	game.pause_menu._set_bus_volume(0.37, "BGM")
@@ -91,6 +123,7 @@ func _run() -> void:
 	game.pause_menu._go_back()
 	_check(game.pause_menu.current_page == PauseMenu.Page.MAIN and game.pause_menu.visible, "子页返回主菜单")
 	_check(game.pause_menu.silhouette_transition.visible, "返回主菜单后恢复剪影")
+	_check(game.pause_menu.bottom_hint.visible, "返回主菜单后恢复主菜单键盘提示")
 	game.pause_menu._go_back()
 	_check(not game.pause_menu.visible and not paused, "主菜单返回战斗并解除暂停")
 	_check(game.model.current_unit_id == actor_before and game.ui_mode == ui_mode_before, "关闭菜单保持战斗操作状态")

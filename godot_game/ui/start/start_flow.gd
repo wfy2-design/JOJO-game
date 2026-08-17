@@ -6,6 +6,8 @@ extends Control
 signal mode_confirmed(selected_mode: String, team_size: int, board_size: int, random_spawn: bool)
 signal tutorial_requested
 signal exit_requested
+signal archive_requested
+signal settings_requested
 
 var title_screen: TitleScreen
 var mode_screen: ModeSelectScreen
@@ -20,6 +22,8 @@ func _ready() -> void:
 	title_screen = TitleScreen.new()
 	title_screen.enter_requested.connect(show_mode)
 	title_screen.exit_requested.connect(func() -> void: exit_requested.emit())
+	title_screen.archive_requested.connect(func() -> void: archive_requested.emit())
+	title_screen.settings_requested.connect(func() -> void: settings_requested.emit())
 	add_child(title_screen)
 
 	mode_screen = ModeSelectScreen.new()

@@ -1,0 +1,65 @@
+extends SceneTree
+
+## 验证从 TITLE 打开图鉴/设置后，点「返回」按钮回到 TITLE 而非暂停菜单主菜单。
+
+var failures := 0
+
+
+func _initialize() -> void:
+	call_deferred("_run")
+
+
+func _check(condition: bool, message: String) -> void:
+	if condition:
+		print("PASS: ", message)
+	else:
+		failures += 1
+		push_error("FAIL: " + message)
+
+
+func _run() -> void:
+	var game: Node = load("res://main.tscn").instantiate()
+	root.add_child(game)
+	await process_frame
+	await process_frame
+
+	game._open_archive_from_title()
+	await process_frame
+	await process_frame
+	var back := _find_back_button(game)
+	_check(back != null, "图鉴页存在「返回」按钮")
+	_check(back != null and back.position.x < 320.0, "图鉴页「返回」按钮位于屏幕左侧")
+	_check(not game.pause_menu.bottom_hint.visible, "图鉴页不显示底部重复提示文字")
+	if back != null:
+		back.pressed.emit()
+		await process_frame
+		await process_frame
+		_check(game.start_flow.visible and not game.pause_menu.visible, "图鉴页点返回回到 TITLE")
+
+	game._open_settings_from_title()
+	await process_frame
+	await process_frame
+	var back2 := _find_back_button(game)
+	if back2 != null:
+		back2.pressed.emit()
+		await process_frame
+		await process_frame
+		_check(game.start_flow.visible and not game.pause_menu.visible, "设置页点返回回到 TITLE")
+	else:
+		# 设置页没有显式返回按钮，走 Tab/Esc 的 _go_back
+		game.pause_menu._go_back()
+		await process_frame
+		_check(game.start_flow.visible and not game.pause_menu.visible, "设置页 Esc 返回回到 TITLE")
+
+	if failures == 0:
+		print("ALL BACK BUTTON TESTS PASSED")
+	else:
+		push_error("%d BACK BUTTON TESTS FAILED" % failures)
+	quit(failures)
+
+
+func _find_back_button(game: Node) -> Button:
+	for child in game.pause_menu.content_root.get_children():
+		if child is Button and child.text == "返回":
+			return child
+	return null

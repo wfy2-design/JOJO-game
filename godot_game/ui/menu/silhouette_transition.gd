@@ -15,6 +15,7 @@ var incoming_main: TextureRect
 var incoming_shadow: TextureRect
 
 var _tween: Tween
+var _cover_tween: Tween
 var _generation := 0
 var _texture_cache: Dictionary = {}
 
@@ -31,6 +32,7 @@ func _ready() -> void:
 
 func set_initial(character_key: String, primary: Color, secondary: Color) -> void:
 	_kill_transition()
+	reset_page_cover_pose()
 	current_key = character_key
 	target_key = character_key
 	_assign_pair(incoming_main, incoming_shadow, character_key, primary, secondary)
@@ -79,6 +81,28 @@ func transition_to(character_key: String, primary: Color, secondary: Color, move
 
 func is_transitioning() -> bool:
 	return _tween != null and _tween.is_valid()
+
+
+func play_page_cover(move_direction: int) -> void:
+	_commit_interrupted_target()
+	if _cover_tween != null and _cover_tween.is_valid():
+		_cover_tween.kill()
+	pivot_offset = size * 0.5
+	scale = Vector2.ONE
+	rotation = 0.0
+	var direction_value := 1.0 if move_direction >= 0 else -1.0
+	_cover_tween = create_tween()
+	_cover_tween.set_parallel(true).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	_cover_tween.tween_property(self, "scale", Vector2(1.18, 1.18), 0.18)
+	_cover_tween.tween_property(self, "rotation", 0.016 * direction_value, 0.18)
+
+
+func reset_page_cover_pose() -> void:
+	if _cover_tween != null and _cover_tween.is_valid():
+		_cover_tween.kill()
+	_cover_tween = null
+	scale = Vector2.ONE
+	rotation = 0.0
 
 
 func _create_layer(layer_rect: Rect2, alpha: float) -> TextureRect:
