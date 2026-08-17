@@ -91,6 +91,9 @@ func open_menu() -> bool:
 		return false
 	if can_open_callback.is_valid() and not bool(can_open_callback.call()):
 		return false
+	# The return destination belongs to this opening session. A previous page
+	# opened from the title screen must never affect an in-battle menu.
+	opened_from_title = false
 	_tree_was_paused = get_tree().paused
 	visible = true
 	current_page = Page.MAIN
@@ -106,6 +109,7 @@ func close_menu() -> void:
 	_cancel_page_transition()
 	confirm_layer.visible = false
 	visible = false
+	opened_from_title = false
 	get_tree().paused = _tree_was_paused
 
 

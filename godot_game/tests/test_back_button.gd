@@ -51,6 +51,21 @@ func _run() -> void:
 		await process_frame
 		_check(game.start_flow.visible and not game.pause_menu.visible, "设置页 Esc 返回回到 TITLE")
 
+	# 即使标题页来源状态曾残留，游戏内打开菜单也必须建立新的返回上下文。
+	game._start_game("local")
+	game.start_flow.visible = false
+	game.pause_menu.opened_from_title = true
+	_check(game.pause_menu.open_menu(), "战斗中可以打开暂停菜单")
+	_check(not game.pause_menu.opened_from_title, "战斗菜单会清除标题页来源状态")
+	game.pause_menu._show_archive_page()
+	game.pause_menu._go_back()
+	_check(
+		game.pause_menu.visible and game.pause_menu.current_page == PauseMenu.Page.MAIN,
+		"战斗中图鉴返回暂停菜单主栏"
+	)
+	_check(not game.start_flow.visible, "战斗中图鉴返回不会显示游戏开始界面")
+	game.pause_menu.close_menu()
+
 	if failures == 0:
 		print("ALL BACK BUTTON TESTS PASSED")
 	else:
