@@ -47,6 +47,14 @@ func _capture() -> void:
 	await process_frame
 	await process_frame
 	_save_viewport("menu_main.png")
+	game.pause_menu._select_main_item(1)
+	await process_frame
+	_save_viewport("menu_transition_start.png")
+	await create_timer(0.11, true).timeout
+	_save_viewport("menu_transition_middle.png")
+	await create_timer(0.18, true).timeout
+	_save_viewport("menu_transition_end.png")
+
 
 	game.pause_menu._show_archive_page()
 	await process_frame

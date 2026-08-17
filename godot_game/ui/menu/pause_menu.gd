@@ -20,6 +20,7 @@ const TITLE_FONT := preload("res://assets/fonts/SmileySans-Oblique.ttf")
 const BODY_FONT := preload("res://assets/fonts/SourceHanSansCN-Bold.otf")
 const NUMBER_FONT := preload("res://assets/fonts/BebasNeue-Regular.ttf")
 const JAPANESE_FONT := preload("res://assets/fonts/YujiSyuku-Regular.ttf")
+const SILHOUETTE_TRANSITION_SCRIPT := preload("res://ui/menu/silhouette_transition.gd")
 
 var enabled := false
 var can_open_callback := Callable()
@@ -30,8 +31,11 @@ var current_secondary := Color("#e0b84c")
 var selected_character_index := 0
 var rule_page_index := 0
 var archive_tab := "attributes"
+var selected_menu_index := 0
 var _tree_was_paused := false
 var _theme_tween: Tween
+var _word_tween: Tween
+var _hover_focus_generation := 0
 
 var overlay: Control
 var blur_rect: ColorRect
@@ -40,6 +44,7 @@ var menu_title: Label
 var subtitle: Label
 var content_root: Control
 var bottom_hint: Label
+var silhouette_transition: Control
 var silhouette: TextureRect
 var silhouette_shadow: TextureRect
 var onomatopoeia: Label
@@ -161,6 +166,12 @@ void fragment() {
 	_place(subtitle, Rect2(78, 126, 520, 38))
 	overlay.add_child(subtitle)
 
+	silhouette_transition = SILHOUETTE_TRANSITION_SCRIPT.new()
+	_place(silhouette_transition, Rect2(650, 55, 840, 790))
+	overlay.add_child(silhouette_transition)
+	silhouette = silhouette_transition.incoming_main
+	silhouette_shadow = silhouette_transition.incoming_shadow
+
 	content_root = Control.new()
 	content_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	overlay.add_child(content_root)
@@ -184,22 +195,8 @@ func _show_main_page() -> void:
 	bottom_hint.text = "ARROWS  SELECT    ENTER  CONFIRM    TAB / ESC  BACK"
 	_clear_content()
 	main_buttons.clear()
-
-	# Keep the expressive silhouette fully visible inside the viewport.
-	silhouette_shadow = TextureRect.new()
-	silhouette_shadow.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	silhouette_shadow.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	silhouette_shadow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	silhouette_shadow.modulate.a = 0.30
-	_place(silhouette_shadow, Rect2(700, 85, 790, 745))
-	content_root.add_child(silhouette_shadow)
-
-	silhouette = TextureRect.new()
-	silhouette.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	silhouette.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	silhouette.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_place(silhouette, Rect2(650, 55, 840, 790))
-	content_root.add_child(silhouette)
+	silhouette_transition.visible = true
+	selected_menu_index = 0
 
 	var menu_box := VBoxContainer.new()
 	menu_box.add_theme_constant_override("separation", 13)
@@ -215,7 +212,7 @@ func _show_main_page() -> void:
 		button.add_theme_font_override("font", TITLE_FONT)
 		button.add_theme_font_size_override("font_size", 32)
 		button.focus_entered.connect(_select_main_item.bind(index))
-		button.mouse_entered.connect(func() -> void: button.grab_focus())
+		button.mouse_entered.connect(_focus_main_button_after_delay.bind(button))
 		button.pressed.connect(_activate_main_item.bind(str(item["id"])))
 		menu_box.add_child(button)
 		main_buttons.append(button)
@@ -240,9 +237,40 @@ func _show_main_page() -> void:
 func _select_main_item(index: int, animate := true) -> void:
 	if index < 0 or index >= MenuThemeData.MENU_ITEMS.size():
 		return
+	var previous_index := selected_menu_index
+	selected_menu_index = index
 	var item: Dictionary = MenuThemeData.MENU_ITEMS[index]
-	_set_character_theme(str(item["character"]), animate)
+	var character_key := str(item["character"])
+	if animate and character_key == silhouette_transition.target_key:
+		_apply_main_button_styles(index)
+		return
+	var selected_theme := MenuThemeData.theme_for(character_key)
+	_set_character_theme(character_key, animate)
+	if animate:
+		silhouette_transition.transition_to(
+			character_key,
+			selected_theme["primary"],
+			selected_theme["secondary"],
+			1 if index > previous_index else -1
+		)
+		_animate_onomatopoeia()
+	else:
+		silhouette_transition.set_initial(
+			character_key,
+			selected_theme["primary"],
+			selected_theme["secondary"]
+		)
 	_apply_main_button_styles(index)
+
+
+func _focus_main_button_after_delay(button: Button) -> void:
+	_hover_focus_generation += 1
+	var run_id := _hover_focus_generation
+	await get_tree().create_timer(0.045, true).timeout
+	if run_id != _hover_focus_generation or current_page != Page.MAIN:
+		return
+	if is_instance_valid(button) and button.is_hovered():
+		button.grab_focus()
 
 
 func _activate_main_item(item_id: String) -> void:
@@ -257,6 +285,7 @@ func _activate_main_item(item_id: String) -> void:
 
 func _show_archive_page() -> void:
 	current_page = Page.ARCHIVE
+	silhouette_transition.visible = false
 	menu_title.text = "ARCHIVE"
 	subtitle.text = "人物与技能图鉴"
 	bottom_hint.text = "选择角色与标签页查看资料    TAB / ESC  返回"
@@ -411,6 +440,7 @@ func _build_skill_content(character: Dictionary) -> void:
 
 func _show_guide_page() -> void:
 	current_page = Page.GUIDE
+	silhouette_transition.visible = false
 	menu_title.text = "GUIDE"
 	subtitle.text = "游戏规则介绍"
 	bottom_hint.text = "左右按钮翻页    TAB / ESC  返回"
@@ -489,6 +519,7 @@ func _update_rule_page() -> void:
 
 func _show_tutorial_page() -> void:
 	current_page = Page.TUTORIAL
+	silhouette_transition.visible = false
 	menu_title.text = "TUTORIAL"
 	subtitle.text = "游戏教程"
 	bottom_hint.text = "上一步 / 下一步 / 重播 / 返回    TAB / ESC  返回菜单"
@@ -501,6 +532,7 @@ func _show_tutorial_page() -> void:
 
 func _show_settings_page() -> void:
 	current_page = Page.SETTINGS
+	silhouette_transition.visible = false
 	menu_title.text = "SETTINGS"
 	subtitle.text = "系统设置"
 	bottom_hint.text = "设置自动保存    TAB / ESC  返回"
@@ -726,11 +758,7 @@ func _set_character_theme(character_key: String, animate := true) -> void:
 		_apply_secondary_color(next_secondary)
 	current_primary = next_primary
 	current_secondary = next_secondary
-	if silhouette != null and is_instance_valid(silhouette):
-		_set_portrait(silhouette, character_key, true)
-		_set_portrait(silhouette_shadow, character_key, true)
-		if silhouette_shadow.material is ShaderMaterial:
-			silhouette_shadow.material.set_shader_parameter("theme_color", current_secondary)
+	if onomatopoeia != null and is_instance_valid(onomatopoeia):
 		onomatopoeia.text = str(selected_theme["onomatopoeia"])
 
 
@@ -739,15 +767,25 @@ func _apply_primary_color(color: Color) -> void:
 	menu_title.add_theme_color_override("font_color", color)
 	if blur_rect.material is ShaderMaterial:
 		blur_rect.material.set_shader_parameter("tint_color", color)
-	if silhouette != null and silhouette.material is ShaderMaterial:
-		silhouette.material.set_shader_parameter("theme_color", color)
 
 
 func _apply_secondary_color(color: Color) -> void:
-	if silhouette_shadow != null and silhouette_shadow.material is ShaderMaterial:
-		silhouette_shadow.material.set_shader_parameter("theme_color", color)
 	if onomatopoeia != null:
 		onomatopoeia.add_theme_color_override("font_color", color)
+
+
+func _animate_onomatopoeia() -> void:
+	if onomatopoeia == null or not is_instance_valid(onomatopoeia):
+		return
+	if _word_tween != null and _word_tween.is_valid():
+		_word_tween.kill()
+	onomatopoeia.pivot_offset = onomatopoeia.size * 0.5
+	onomatopoeia.scale = Vector2(0.82, 0.82)
+	onomatopoeia.modulate.a = 0.25
+	_word_tween = create_tween()
+	_word_tween.set_parallel(true).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_word_tween.tween_property(onomatopoeia, "scale", Vector2.ONE, 0.24)
+	_word_tween.tween_property(onomatopoeia, "modulate:a", 1.0, 0.14)
 
 
 func _apply_main_button_styles(selected_index: int) -> void:
@@ -804,8 +842,6 @@ func _clear_content() -> void:
 	for child in content_root.get_children():
 		content_root.remove_child(child)
 		child.queue_free()
-	silhouette = null
-	silhouette_shadow = null
 	onomatopoeia = null
 
 

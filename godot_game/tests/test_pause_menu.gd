@@ -37,16 +37,35 @@ func _run() -> void:
 	_check(game.pause_menu.silhouette.size.y <= 800.0, "主菜单立绘剪影已适当缩小")
 	_check(game.pause_menu.silhouette.position.y >= 0.0, "主菜单立绘剪影顶部不超出屏幕")
 	_check(game.pause_menu.silhouette.position.y + game.pause_menu.silhouette.size.y <= 900.0, "主菜单立绘剪影底部不超出屏幕")
-	_check(game.pause_menu.silhouette.get_parent() == game.pause_menu.content_root, "立绘剪影不再受右侧边框限制")
+	_check(game.pause_menu.silhouette.get_parent() == game.pause_menu.silhouette_transition, "立绘剪影由常驻转场组件管理")
 	_check(game.pause_menu.silhouette_shadow != null, "主菜单包含副色残影层")
+	_check(game.pause_menu.silhouette_transition.current_key == "night_chain", "主菜单初始剪影为夜锁")
+	_check(
+		game.pause_menu.silhouette_transition.incoming_main.material
+		!= game.pause_menu.silhouette_transition.outgoing_main.material,
+		"新旧剪影使用独立 ShaderMaterial"
+	)
 	var expected_labels := ["CONTINUE", "ARCHIVE", "GUIDE", "TUTORIAL", "SETTINGS", "EXIT"]
 	for index in expected_labels.size():
 		_check(game.pause_menu.main_buttons[index].text.contains(expected_labels[index]), "主入口使用英文：%s" % expected_labels[index])
+
+	game.pause_menu._select_main_item(1)
+	_check(game.pause_menu.silhouette_transition.target_key == "crimson_thorn", "ARCHIVE 聚焦后开始切换到绯棘")
+	_check(game.pause_menu.silhouette_transition.is_transitioning(), "剪影切换会播放 Tween")
+	await create_timer(0.32, true).timeout
+	_check(game.pause_menu.silhouette_transition.current_key == "crimson_thorn", "单次剪影转场在 0.3 秒左右完成")
+	game.pause_menu._select_main_item(2)
+	game.pause_menu._select_main_item(4)
+	game.pause_menu._select_main_item(5)
+	_check(game.pause_menu.silhouette_transition.target_key == "molten_core", "连续切换时最后目标为高热核心")
+	await create_timer(0.32, true).timeout
+	_check(game.pause_menu.silhouette_transition.current_key == "molten_core", "连续切换不会排队播放旧目标")
 
 	game.pause_menu._select_main_item(1, false)
 	_check(game.pause_menu.current_character_key == "crimson_thorn", "ARCHIVE 对应绯棘主题")
 	game.pause_menu._show_archive_page()
 	_check(game.pause_menu.current_page == PauseMenu.Page.ARCHIVE, "可进入中文图鉴页")
+	_check(not game.pause_menu.silhouette_transition.visible, "进入子页面后隐藏主菜单剪影")
 	game.pause_menu._select_archive_character(5)
 	_check(game.pause_menu.archive_name.text.contains("霜翊"), "图鉴包含第六名角色霜翊")
 	_check(not game.pause_menu.archive_story.text.is_empty(), "图鉴显示角色背景故事")
@@ -71,6 +90,7 @@ func _run() -> void:
 
 	game.pause_menu._go_back()
 	_check(game.pause_menu.current_page == PauseMenu.Page.MAIN and game.pause_menu.visible, "子页返回主菜单")
+	_check(game.pause_menu.silhouette_transition.visible, "返回主菜单后恢复剪影")
 	game.pause_menu._go_back()
 	_check(not game.pause_menu.visible and not paused, "主菜单返回战斗并解除暂停")
 	_check(game.model.current_unit_id == actor_before and game.ui_mode == ui_mode_before, "关闭菜单保持战斗操作状态")
